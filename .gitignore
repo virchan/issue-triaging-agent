@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+.venv/
+
+# Credentials and local configuration
+.env
+.env.*
+!.env.example
+
+# Editors and operating systems
+.vscode/
+.idea/
+.DS_Store
+
+# Build output
+build/
+dist/
+*.egg-info/
+
+# Internal planning/process docs, kept local-only for now
+design-plan.md
+LOG.md
+milestones.md
