@@ -31,18 +31,19 @@ CREATE TABLE IF NOT EXISTS digests (
     closed_at                TIMESTAMPTZ
 );
 
--- Draft shape: the exact fields here (label taxonomy, confidence, etc.)
--- are expected to be revisited at Step 11, when the judgment schema gets
--- finalized as a Pydantic model. This is a reasonable starting point, not
--- a locked contract.
+-- Finalized at Step 11 to match src/judgment.py's IssueJudgment. Note
+-- what's deliberately absent: no duplicate-candidate fields (dropped from
+-- the MVP, see LOG.md).
 CREATE TABLE IF NOT EXISTS judgments (
     id                  SERIAL PRIMARY KEY,
     issue_id            INTEGER NOT NULL UNIQUE REFERENCES issues (id),
     digest_id           INTEGER REFERENCES digests (id),
     suggested_label     TEXT,
     is_spam             BOOLEAN NOT NULL DEFAULT FALSE,
-    rationale           TEXT,
-    confidence          REAL,
+    summary             TEXT NOT NULL,
+    priority            TEXT NOT NULL CHECK (priority IN ('low', 'medium', 'high')),
+    rationale           TEXT NOT NULL,
+    confidence          REAL NOT NULL,
     created_at          TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 

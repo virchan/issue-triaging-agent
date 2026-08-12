@@ -18,3 +18,9 @@ dev = [
     "pytest-mock>=3.15.1",
     "ruff>=0.16.2",
 ]
+
+[tool.pytest.ini_options]
+markers = [
+    "golden: live regression test against eval/golden_set.json - calls the real Gemini API, needs GEMINI_API_KEY. Excluded by default (see addopts); run explicitly with `pytest -m golden`.",
+]
+addopts = "-m 'not golden'"

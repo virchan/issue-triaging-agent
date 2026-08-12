@@ -1,0 +1,29 @@
+name: Golden set regression
+
+on:
+  schedule:
+    # Sundays at 02:00 UTC. GitHub Actions cron always runs in UTC.
+    - cron: "0 2 * * 0"
+  workflow_dispatch:
+
+jobs:
+  golden-eval:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Run golden set regression suite
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: uv run pytest -m golden -v

@@ -77,6 +77,34 @@ def test_fetch_issues_created_on_builds_expected_query(mocker: Any) -> None:
     )
 
 
+def test_fetch_issues_created_on_adds_label_filter_when_given(mocker: Any) -> None:
+    get = mocker.patch.object(
+        httpx.Client, "get", return_value=_mock_response(mocker, [])
+    )
+
+    client = GitHubClient()
+    client.fetch_issues_created_on(
+        "scikit-learn", "scikit-learn", dt.date(2026, 8, 4), label="Needs Triage"
+    )
+
+    _, kwargs = get.call_args
+    assert kwargs["params"]["q"] == (
+        'repo:scikit-learn/scikit-learn is:issue created:2026-08-04 label:"Needs Triage"'
+    )
+
+
+def test_fetch_issues_created_on_omits_label_filter_by_default(mocker: Any) -> None:
+    get = mocker.patch.object(
+        httpx.Client, "get", return_value=_mock_response(mocker, [])
+    )
+
+    client = GitHubClient()
+    client.fetch_issues_created_on("scikit-learn", "scikit-learn", dt.date(2026, 8, 4))
+
+    _, kwargs = get.call_args
+    assert "label:" not in kwargs["params"]["q"]
+
+
 def test_fetch_issues_created_on_paginates(mocker: Any) -> None:
     page_1 = _mock_response(mocker, [_raw_issue(i) for i in range(100)])
     page_2 = _mock_response(mocker, [_raw_issue(100)])
@@ -113,3 +141,33 @@ def test_client_adds_authorization_header_when_token_given() -> None:
 def test_client_omits_authorization_header_when_no_token() -> None:
     client = GitHubClient()
     assert "Authorization" not in client._client.headers
+
+
+def test_create_issue_comment_posts_and_returns_comment_id(mocker: Any) -> None:
+    response = mocker.Mock()
+    response.raise_for_status.return_value = None
+    response.json.return_value = {"id": 999}
+    post = mocker.patch.object(httpx.Client, "post", return_value=response)
+
+    client = GitHubClient()
+    comment_id = client.create_issue_comment(
+        "virchan", "issue-triaging-agent-digests", 4, "Hello"
+    )
+
+    assert comment_id == 999
+    _, kwargs = post.call_args
+    assert kwargs["json"] == {"body": "Hello"}
+
+
+def test_create_issue_comment_wraps_http_errors(mocker: Any) -> None:
+    response = mocker.Mock()
+    response.raise_for_status.side_effect = httpx.HTTPStatusError(
+        "boom", request=mocker.Mock(), response=mocker.Mock()
+    )
+    mocker.patch.object(httpx.Client, "post", return_value=response)
+
+    client = GitHubClient()
+    with pytest.raises(GitHubClientError):
+        client.create_issue_comment(
+            "virchan", "issue-triaging-agent-digests", 4, "Hello"
+        )

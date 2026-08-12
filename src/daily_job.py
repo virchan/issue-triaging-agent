@@ -1,0 +1,100 @@
+from __future__ import annotations
+
+import datetime as dt
+from dataclasses import dataclass, field
+from typing import Any
+
+import psycopg
+
+from src.corrections import CaptureResult, capture_corrections
+from src.db import get_unreviewed_digests
+from src.digest import DigestContent, build_digest, publish_digest
+from src.gemini_client import GeminiJudge
+from src.github_client import GitHubClient
+from src.pipeline import PipelineResult, fetch_and_judge
+
+
+@dataclass
+class DailyCycleResult:
+    """Summary of one full state-machine pass: forward (fetch through
+    publish) and backward (correction capture on previously-published,
+    now-possibly-closed digests)."""
+
+    pipeline: PipelineResult
+    digest: DigestContent
+    published: tuple[int, str] | None
+    reviews: list[CaptureResult] = field(default_factory=list)
+
+
+def run_daily_cycle(
+    *,
+    github_client: GitHubClient,
+    shadow_client: GitHubClient,
+    gemini_judge: GeminiJudge,
+    connection: psycopg.Connection[Any],
+    source_owner: str,
+    source_repo: str,
+    shadow_owner: str,
+    shadow_repo: str,
+    label: str | None,
+    date: dt.date,
+) -> DailyCycleResult:
+    """Run the full state machine: fetched -> filtered/judged -> digested
+    -> published -> reviewed/corrected -> closed.
+
+    Forward half (today's issues through publishing a new digest) runs
+    first, then every previously-published digest not yet marked
+    reviewed is checked - capture_corrections is a no-op for any whose
+    GitHub issue isn't closed yet, so calling it here is always safe,
+    not just when a digest is known to be ready.
+
+    github_client must be read-only (scikit-learn); shadow_client must
+    be authenticated with SHADOW_REPO_TOKEN (shadow repo writes).
+    """
+
+    pipeline_result = fetch_and_judge(
+        github_client=github_client,
+        gemini_judge=gemini_judge,
+        connection=connection,
+        owner=source_owner,
+        repo=source_repo,
+        date=date,
+        label=label,
+    )
+
+    digest = build_digest(
+        connection,
+        source_owner=source_owner,
+        source_repo=source_repo,
+        shadow_owner=shadow_owner,
+        shadow_repo=shadow_repo,
+        date=date,
+    )
+
+    published = publish_digest(
+        connection,
+        shadow_client,
+        digest,
+        shadow_owner=shadow_owner,
+        shadow_repo=shadow_repo,
+    )
+
+    reviews: list[CaptureResult] = []
+    for unreviewed in get_unreviewed_digests(connection):
+        reviews.append(
+            capture_corrections(
+                connection,
+                shadow_client,
+                digest_id=unreviewed.digest_id,
+                shadow_owner=unreviewed.shadow_owner,
+                shadow_repo=unreviewed.shadow_repo,
+                shadow_issue_number=unreviewed.shadow_issue_number,
+            )
+        )
+
+    return DailyCycleResult(
+        pipeline=pipeline_result,
+        digest=digest,
+        published=published,
+        reviews=reviews,
+    )
