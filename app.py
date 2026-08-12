@@ -13,6 +13,7 @@ from __future__ import annotations
 import datetime as dt
 import os
 
+import psycopg
 from dotenv import load_dotenv
 from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel
@@ -20,8 +21,13 @@ from pydantic import BaseModel
 from src.corrections import CaptureResult
 from src.daily_job import run_daily_cycle
 from src.db import JudgmentAuditEntry, connect, get_judgment_audit_trail
-from src.gemini_client import GeminiJudge
-from src.github_client import GitHubClient
+from src.gemini_client import (
+    GeminiConfigurationError,
+    GeminiJudge,
+    GeminiResponseError,
+    GeminiUnavailableError,
+)
+from src.github_client import GitHubClient, GitHubClientError
 from src.pipeline import PipelineResult
 
 load_dotenv()
@@ -91,26 +97,37 @@ def trigger(x_trigger_token: str | None = Header(default=None)) -> TriggerRespon
 
     today = dt.datetime.now(dt.UTC).date()
 
-    with (
-        GitHubClient() as github_client,
-        GitHubClient(token=os.environ["SHADOW_REPO_TOKEN"]) as shadow_client,
-        connect() as connection,
-    ):
-        gemini_judge = GeminiJudge(
-            model=GEMINI_MODEL, api_key=os.environ["GEMINI_API_KEY"]
-        )
-        result = run_daily_cycle(
-            github_client=github_client,
-            shadow_client=shadow_client,
-            gemini_judge=gemini_judge,
-            connection=connection,
-            source_owner=SOURCE_OWNER,
-            source_repo=SOURCE_REPO,
-            shadow_owner=SHADOW_OWNER,
-            shadow_repo=SHADOW_REPO,
-            label=TRIAGE_LABEL,
-            date=today,
-        )
+    try:
+        with (
+            GitHubClient() as github_client,
+            GitHubClient(token=os.environ["SHADOW_REPO_TOKEN"]) as shadow_client,
+            connect() as connection,
+        ):
+            gemini_judge = GeminiJudge(
+                model=GEMINI_MODEL, api_key=os.environ["GEMINI_API_KEY"]
+            )
+            result = run_daily_cycle(
+                github_client=github_client,
+                shadow_client=shadow_client,
+                gemini_judge=gemini_judge,
+                connection=connection,
+                source_owner=SOURCE_OWNER,
+                source_repo=SOURCE_REPO,
+                shadow_owner=SHADOW_OWNER,
+                shadow_repo=SHADOW_REPO,
+                label=TRIAGE_LABEL,
+                date=today,
+            )
+    except (
+        GitHubClientError,
+        GeminiUnavailableError,
+        GeminiResponseError,
+        GeminiConfigurationError,
+        psycopg.Error,
+    ) as error:
+        raise HTTPException(
+            status_code=502, detail=f"A dependency failed to complete the run: {error}"
+        ) from error
 
     return TriggerResponse(
         pipeline=result.pipeline,

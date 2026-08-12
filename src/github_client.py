@@ -95,13 +95,16 @@ class GitHubClient:
                     params={"q": query, "per_page": 100, "page": page},
                 )
                 response.raise_for_status()
+                items = response.json().get("items", [])
+                issues.extend(_parse_issue(item) for item in items)
             except httpx.HTTPError as error:
                 raise GitHubClientError(
                     "GitHub could not complete the issue search."
                 ) from error
-
-            items = response.json().get("items", [])
-            issues.extend(_parse_issue(item) for item in items)
+            except (KeyError, TypeError, ValueError) as error:
+                raise GitHubClientError(
+                    "GitHub returned an unexpected issue search response."
+                ) from error
 
             if len(items) < 100:
                 break
@@ -121,13 +124,16 @@ class GitHubClient:
                     params={"per_page": 100, "page": page},
                 )
                 response.raise_for_status()
+                items = response.json()
+                labels.extend(item["name"] for item in items)
             except httpx.HTTPError as error:
                 raise GitHubClientError(
                     "GitHub could not complete the label listing."
                 ) from error
-
-            items = response.json()
-            labels.extend(item["name"] for item in items)
+            except (KeyError, TypeError, ValueError) as error:
+                raise GitHubClientError(
+                    "GitHub returned an unexpected label listing response."
+                ) from error
 
             if len(items) < 100:
                 break
@@ -146,11 +152,14 @@ class GitHubClient:
                 json={"title": title, "body": body},
             )
             response.raise_for_status()
+            data = response.json()
+            return data["number"], data["html_url"]
         except httpx.HTTPError as error:
             raise GitHubClientError("GitHub could not create the issue.") from error
-
-        data = response.json()
-        return data["number"], data["html_url"]
+        except (KeyError, TypeError, ValueError) as error:
+            raise GitHubClientError(
+                "GitHub returned an unexpected issue-creation response."
+            ) from error
 
     def get_issue_state(self, owner: str, repo: str, issue_number: int) -> str:
         """Return 'open' or 'closed' for the given issue."""
@@ -158,10 +167,13 @@ class GitHubClient:
         try:
             response = self._client.get(f"/repos/{owner}/{repo}/issues/{issue_number}")
             response.raise_for_status()
+            return response.json()["state"]
         except httpx.HTTPError as error:
             raise GitHubClientError("GitHub could not fetch the issue.") from error
-
-        return response.json()["state"]
+        except (KeyError, TypeError, ValueError) as error:
+            raise GitHubClientError(
+                "GitHub returned an unexpected issue response."
+            ) from error
 
     def fetch_issue_comments(
         self, owner: str, repo: str, issue_number: int
@@ -177,18 +189,21 @@ class GitHubClient:
                     params={"per_page": 100, "page": page},
                 )
                 response.raise_for_status()
+                items = response.json()
+                comments.extend(
+                    GitHubComment(
+                        id=item["id"], body=item["body"], created_at=item["created_at"]
+                    )
+                    for item in items
+                )
             except httpx.HTTPError as error:
                 raise GitHubClientError(
                     "GitHub could not fetch the issue comments."
                 ) from error
-
-            items = response.json()
-            comments.extend(
-                GitHubComment(
-                    id=item["id"], body=item["body"], created_at=item["created_at"]
-                )
-                for item in items
-            )
+            except (KeyError, TypeError, ValueError) as error:
+                raise GitHubClientError(
+                    "GitHub returned an unexpected issue comments response."
+                ) from error
 
             if len(items) < 100:
                 break
@@ -207,10 +222,13 @@ class GitHubClient:
                 json={"body": body},
             )
             response.raise_for_status()
+            return response.json()["id"]
         except httpx.HTTPError as error:
             raise GitHubClientError("GitHub could not post the comment.") from error
-
-        return response.json()["id"]
+        except (KeyError, TypeError, ValueError) as error:
+            raise GitHubClientError(
+                "GitHub returned an unexpected comment response."
+            ) from error
 
     def close(self) -> None:
         self._client.close()

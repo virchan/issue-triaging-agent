@@ -140,6 +140,49 @@ def test_judge_rejects_label_outside_known_list(
         judge.judge(title="Some issue", body=None, known_labels=KNOWN_LABELS)
 
 
+def test_judge_rejects_missing_required_field(
+    mocker: Any, client: Any, judge: GeminiJudge
+) -> None:
+    """Valid JSON, but missing a required field (e.g. `summary` dropped
+    mid-generation) - a different failure shape than plain-invalid JSON,
+    exercising the same ValidationError guardrail."""
+
+    client.models.generate_content.return_value = mocker.Mock(
+        text='{"suggested_label": "Bug", "is_spam": false, "priority": "medium", '
+        '"rationale": "r", "confidence": 0.8}'
+    )
+
+    with pytest.raises(GeminiResponseError, match="invalid response"):
+        judge.judge(title="Some issue", body=None, known_labels=KNOWN_LABELS)
+
+
+def test_judge_rejects_invalid_priority_value(
+    mocker: Any, client: Any, judge: GeminiJudge
+) -> None:
+    """Valid JSON, valid types, but priority outside the low/medium/high
+    Literal - the model hallucinating a value outside its own schema."""
+
+    client.models.generate_content.return_value = mocker.Mock(
+        text='{"suggested_label": "Bug", "is_spam": false, "summary": "s", '
+        '"priority": "urgent", "rationale": "r", "confidence": 0.8}'
+    )
+
+    with pytest.raises(GeminiResponseError, match="invalid response"):
+        judge.judge(title="Some issue", body=None, known_labels=KNOWN_LABELS)
+
+
+def test_judge_rejects_confidence_out_of_range(
+    mocker: Any, client: Any, judge: GeminiJudge
+) -> None:
+    client.models.generate_content.return_value = mocker.Mock(
+        text='{"suggested_label": "Bug", "is_spam": false, "summary": "s", '
+        '"priority": "medium", "rationale": "r", "confidence": 1.5}'
+    )
+
+    with pytest.raises(GeminiResponseError, match="invalid response"):
+        judge.judge(title="Some issue", body=None, known_labels=KNOWN_LABELS)
+
+
 def test_judge_allows_null_suggested_label(
     mocker: Any, client: Any, judge: GeminiJudge
 ) -> None:

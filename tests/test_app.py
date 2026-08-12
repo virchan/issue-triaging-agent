@@ -3,6 +3,7 @@ from __future__ import annotations
 import datetime as dt
 from typing import Any
 
+import psycopg
 import pytest
 from fastapi.testclient import TestClient
 
@@ -10,6 +11,7 @@ from app import app
 from src.daily_job import DailyCycleResult
 from src.db import JudgmentAuditEntry
 from src.digest import DigestContent
+from src.github_client import GitHubClientError
 from src.pipeline import PipelineResult
 
 
@@ -108,3 +110,45 @@ def test_trigger_runs_pipeline_with_correct_token(
     assert body["published_issue_number"] == 9
     assert body["pipeline"]["fetched"] == 2
     assert body["reviews"] == []
+
+
+def test_trigger_returns_502_on_github_failure(
+    mocker: Any, client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("TRIGGER_SECRET", "the-real-secret")
+    monkeypatch.setenv("GEMINI_API_KEY", "fake-key")
+    monkeypatch.setenv("SHADOW_REPO_TOKEN", "fake-token")
+
+    mocker.patch("app.connect", return_value=mocker.MagicMock())
+    mocker.patch("app.GitHubClient", return_value=mocker.MagicMock())
+    mocker.patch("app.GeminiJudge", return_value=mocker.MagicMock())
+    mocker.patch(
+        "app.run_daily_cycle",
+        side_effect=GitHubClientError("scikit-learn's API is unreachable"),
+    )
+
+    response = client.post("/trigger", headers={"X-Trigger-Token": "the-real-secret"})
+
+    assert response.status_code == 502
+    assert "unreachable" in response.json()["detail"]
+
+
+def test_trigger_returns_502_on_db_failure(
+    mocker: Any, client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("TRIGGER_SECRET", "the-real-secret")
+    monkeypatch.setenv("GEMINI_API_KEY", "fake-key")
+    monkeypatch.setenv("SHADOW_REPO_TOKEN", "fake-token")
+
+    mocker.patch("app.connect", return_value=mocker.MagicMock())
+    mocker.patch("app.GitHubClient", return_value=mocker.MagicMock())
+    mocker.patch("app.GeminiJudge", return_value=mocker.MagicMock())
+    mocker.patch(
+        "app.run_daily_cycle",
+        side_effect=psycopg.OperationalError("connection lost"),
+    )
+
+    response = client.post("/trigger", headers={"X-Trigger-Token": "the-real-secret"})
+
+    assert response.status_code == 502
+    assert "connection lost" in response.json()["detail"]

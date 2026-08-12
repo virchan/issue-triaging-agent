@@ -133,6 +133,134 @@ def test_fetch_issues_created_on_wraps_http_errors(mocker: Any) -> None:
         )
 
 
+def test_fetch_issues_created_on_wraps_malformed_response(mocker: Any) -> None:
+    response = mocker.Mock()
+    response.raise_for_status.return_value = None
+    response.json.return_value = {"items": [{"title": "missing the number field"}]}
+    mocker.patch.object(httpx.Client, "get", return_value=response)
+
+    client = GitHubClient()
+    with pytest.raises(GitHubClientError):
+        client.fetch_issues_created_on(
+            "scikit-learn", "scikit-learn", dt.date(2026, 8, 4)
+        )
+
+
+def test_fetch_labels_returns_names(mocker: Any) -> None:
+    response = mocker.Mock()
+    response.raise_for_status.return_value = None
+    response.json.return_value = [{"name": "Bug"}, {"name": "Documentation"}]
+    mocker.patch.object(httpx.Client, "get", return_value=response)
+
+    client = GitHubClient()
+    labels = client.fetch_labels("scikit-learn", "scikit-learn")
+
+    assert labels == ["Bug", "Documentation"]
+
+
+def test_fetch_labels_wraps_http_errors(mocker: Any) -> None:
+    response = mocker.Mock()
+    response.raise_for_status.side_effect = httpx.HTTPStatusError(
+        "boom", request=mocker.Mock(), response=mocker.Mock()
+    )
+    mocker.patch.object(httpx.Client, "get", return_value=response)
+
+    client = GitHubClient()
+    with pytest.raises(GitHubClientError):
+        client.fetch_labels("scikit-learn", "scikit-learn")
+
+
+def test_fetch_labels_wraps_malformed_response(mocker: Any) -> None:
+    response = mocker.Mock()
+    response.raise_for_status.return_value = None
+    response.json.return_value = [{"missing": "name field"}]
+    mocker.patch.object(httpx.Client, "get", return_value=response)
+
+    client = GitHubClient()
+    with pytest.raises(GitHubClientError):
+        client.fetch_labels("scikit-learn", "scikit-learn")
+
+
+def test_create_issue_wraps_http_errors(mocker: Any) -> None:
+    response = mocker.Mock()
+    response.raise_for_status.side_effect = httpx.HTTPStatusError(
+        "boom", request=mocker.Mock(), response=mocker.Mock()
+    )
+    mocker.patch.object(httpx.Client, "post", return_value=response)
+
+    client = GitHubClient()
+    with pytest.raises(GitHubClientError):
+        client.create_issue("virchan", "issue-triaging-agent-digests", "t", "b")
+
+
+def test_create_issue_wraps_malformed_response(mocker: Any) -> None:
+    response = mocker.Mock()
+    response.raise_for_status.return_value = None
+    response.json.return_value = {"missing": "number and html_url"}
+    mocker.patch.object(httpx.Client, "post", return_value=response)
+
+    client = GitHubClient()
+    with pytest.raises(GitHubClientError):
+        client.create_issue("virchan", "issue-triaging-agent-digests", "t", "b")
+
+
+def test_get_issue_state_wraps_http_errors(mocker: Any) -> None:
+    response = mocker.Mock()
+    response.raise_for_status.side_effect = httpx.HTTPStatusError(
+        "boom", request=mocker.Mock(), response=mocker.Mock()
+    )
+    mocker.patch.object(httpx.Client, "get", return_value=response)
+
+    client = GitHubClient()
+    with pytest.raises(GitHubClientError):
+        client.get_issue_state("virchan", "issue-triaging-agent-digests", 4)
+
+
+def test_get_issue_state_wraps_malformed_response(mocker: Any) -> None:
+    response = mocker.Mock()
+    response.raise_for_status.return_value = None
+    response.json.return_value = {"missing": "state field"}
+    mocker.patch.object(httpx.Client, "get", return_value=response)
+
+    client = GitHubClient()
+    with pytest.raises(GitHubClientError):
+        client.get_issue_state("virchan", "issue-triaging-agent-digests", 4)
+
+
+def test_fetch_issue_comments_wraps_http_errors(mocker: Any) -> None:
+    response = mocker.Mock()
+    response.raise_for_status.side_effect = httpx.HTTPStatusError(
+        "boom", request=mocker.Mock(), response=mocker.Mock()
+    )
+    mocker.patch.object(httpx.Client, "get", return_value=response)
+
+    client = GitHubClient()
+    with pytest.raises(GitHubClientError):
+        client.fetch_issue_comments("virchan", "issue-triaging-agent-digests", 4)
+
+
+def test_fetch_issue_comments_wraps_malformed_response(mocker: Any) -> None:
+    response = mocker.Mock()
+    response.raise_for_status.return_value = None
+    response.json.return_value = [{"missing": "id and body"}]
+    mocker.patch.object(httpx.Client, "get", return_value=response)
+
+    client = GitHubClient()
+    with pytest.raises(GitHubClientError):
+        client.fetch_issue_comments("virchan", "issue-triaging-agent-digests", 4)
+
+
+def test_create_issue_comment_wraps_malformed_response(mocker: Any) -> None:
+    response = mocker.Mock()
+    response.raise_for_status.return_value = None
+    response.json.return_value = {"missing": "id field"}
+    mocker.patch.object(httpx.Client, "post", return_value=response)
+
+    client = GitHubClient()
+    with pytest.raises(GitHubClientError):
+        client.create_issue_comment("virchan", "issue-triaging-agent-digests", 4, "Hi")
+
+
 def test_client_adds_authorization_header_when_token_given() -> None:
     client = GitHubClient(token="secret-token")
     assert client._client.headers["Authorization"] == "Bearer secret-token"
