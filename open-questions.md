@@ -127,6 +127,8 @@ The agent doesn't interact with the issue/PR directly: it makes recommendation i
 
 **Resolution:** GCP — Cloud Run (jobs) + Cloud Scheduler + Artifact Registry + Cloud Storage (if needed) + Neon/Supabase Postgres. See `LOG.md` entry 6.
 
+**Postgres provider follow-up (Step 27):** Neon vs. Supabase was left open here. Resolved as **Neon** — Supabase's free tier pauses the whole project after 1 week of inactivity, requiring a manual dashboard action to resume; Neon scales to zero after 5 minutes idle but auto-resumes in ~1 second on the next connection. For a database only ever touched by an unattended, cron-triggered daily job, Neon's auto-resume avoids a real risk: a single missed run tipping Supabase past a week idle and silently breaking every subsequent scheduled run until manually noticed. See `LOG.md` entry 41.
+
 ---
 
 ## 7. Does the system need an HTTP surface (FastAPI service), or is it a pure batch job?

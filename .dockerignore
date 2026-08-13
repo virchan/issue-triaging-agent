@@ -1,0 +1,30 @@
+# Runtime-irrelevant: dev/test tooling, not needed inside the deployed image.
+.venv/
+.git/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+tests/
+eval/
+scripts/check_*.py
+scripts/export_golden_set.py
+scripts/init_db.py
+db/
+
+# Credentials and local configuration - never bake these into an image.
+.env
+.env.*
+!.env.example
+
+# Internal planning/process docs - explicitly kept local-only (see .gitignore),
+# must not leak into a build context either.
+design-plan.md
+LOG.md
+milestones.md
+open-questions.md
+
+.github/
+.dockerignore
+Dockerfile
+README.md
