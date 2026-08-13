@@ -99,7 +99,7 @@ def trigger(x_trigger_token: str | None = Header(default=None)) -> TriggerRespon
 
     try:
         with (
-            GitHubClient() as github_client,
+            GitHubClient(token=os.environ.get("GITHUB_TOKEN")) as github_client,
             GitHubClient(token=os.environ["SHADOW_REPO_TOKEN"]) as shadow_client,
             connect() as connection,
         ):
