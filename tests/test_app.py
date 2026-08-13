@@ -31,12 +31,20 @@ def test_health_ok_when_db_reachable(mocker: Any, client: TestClient) -> None:
 
 
 def test_health_503_when_db_unreachable(mocker: Any, client: TestClient) -> None:
-    mocker.patch("app.connect", side_effect=RuntimeError("connection refused"))
+    mocker.patch(
+        "app.connect",
+        side_effect=RuntimeError(
+            "connection to server at ep-summer-hill-axt2hw18-pooler.c-4."
+            "us-east-2.aws.neon.tech failed"
+        ),
+    )
 
     response = client.get("/health")
 
     assert response.status_code == 503
-    assert "connection refused" in response.json()["detail"]
+    detail = response.json()["detail"]
+    assert detail == "Database unavailable."
+    assert "neon.tech" not in detail
 
 
 def test_judgments_returns_audit_trail(mocker: Any, client: TestClient) -> None:
@@ -61,6 +69,26 @@ def test_judgments_returns_audit_trail(mocker: Any, client: TestClient) -> None:
     assert response.status_code == 200
     assert response.json()[0]["github_number"] == 34649
     assert get_trail.call_args.kwargs["limit"] == 5
+
+
+def test_judgments_rejects_limit_above_500(mocker: Any, client: TestClient) -> None:
+    mocker.patch("app.connect", return_value=mocker.MagicMock())
+    get_trail = mocker.patch("app.get_judgment_audit_trail", return_value=[])
+
+    response = client.get("/judgments?limit=501")
+
+    assert response.status_code == 422
+    get_trail.assert_not_called()
+
+
+def test_judgments_rejects_non_positive_limit(mocker: Any, client: TestClient) -> None:
+    mocker.patch("app.connect", return_value=mocker.MagicMock())
+    get_trail = mocker.patch("app.get_judgment_audit_trail", return_value=[])
+
+    response = client.get("/judgments?limit=0")
+
+    assert response.status_code == 422
+    get_trail.assert_not_called()
 
 
 def test_trigger_requires_token(
@@ -130,7 +158,9 @@ def test_trigger_returns_502_on_github_failure(
     response = client.post("/trigger", headers={"X-Trigger-Token": "the-real-secret"})
 
     assert response.status_code == 502
-    assert "unreachable" in response.json()["detail"]
+    detail = response.json()["detail"]
+    assert detail == "A dependency failed to complete the run."
+    assert "unreachable" not in detail
 
 
 def test_trigger_returns_502_on_db_failure(
@@ -145,10 +175,15 @@ def test_trigger_returns_502_on_db_failure(
     mocker.patch("app.GeminiJudge", return_value=mocker.MagicMock())
     mocker.patch(
         "app.run_daily_cycle",
-        side_effect=psycopg.OperationalError("connection lost"),
+        side_effect=psycopg.OperationalError(
+            "connection to server at ep-summer-hill-axt2hw18-pooler.c-4."
+            "us-east-2.aws.neon.tech failed"
+        ),
     )
 
     response = client.post("/trigger", headers={"X-Trigger-Token": "the-real-secret"})
 
     assert response.status_code == 502
-    assert "connection lost" in response.json()["detail"]
+    detail = response.json()["detail"]
+    assert detail == "A dependency failed to complete the run."
+    assert "neon.tech" not in detail

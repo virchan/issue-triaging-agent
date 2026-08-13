@@ -11,11 +11,12 @@ Run locally with:
 from __future__ import annotations
 
 import datetime as dt
+import logging
 import os
 
 import psycopg
 from dotenv import load_dotenv
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import FastAPI, Header, HTTPException, Query
 from pydantic import BaseModel
 
 from src.corrections import CaptureResult
@@ -31,6 +32,8 @@ from src.github_client import GitHubClient, GitHubClientError
 from src.pipeline import PipelineResult
 
 load_dotenv()
+
+LOGGER = logging.getLogger(__name__)
 
 SOURCE_OWNER = "scikit-learn"
 SOURCE_REPO = "scikit-learn"
@@ -64,15 +67,14 @@ def health() -> HealthResponse:
         with connect() as connection, connection.cursor() as cursor:
             cursor.execute("SELECT 1")
     except Exception as error:
-        raise HTTPException(
-            status_code=503, detail=f"Database unavailable: {error}"
-        ) from error
+        LOGGER.exception("Health check failed: database unreachable")
+        raise HTTPException(status_code=503, detail="Database unavailable.") from error
 
     return HealthResponse(status="ok")
 
 
 @app.get("/judgments")
-def judgments(limit: int = 50) -> list[JudgmentAuditEntry]:
+def judgments(limit: int = Query(default=50, gt=0, le=500)) -> list[JudgmentAuditEntry]:
     """Read audit trail: recent judgments, digest status, and any correction."""
 
     with connect() as connection:
@@ -125,8 +127,9 @@ def trigger(x_trigger_token: str | None = Header(default=None)) -> TriggerRespon
         GeminiConfigurationError,
         psycopg.Error,
     ) as error:
+        LOGGER.exception("Triggered run failed: a dependency did not complete")
         raise HTTPException(
-            status_code=502, detail=f"A dependency failed to complete the run: {error}"
+            status_code=502, detail="A dependency failed to complete the run."
         ) from error
 
     return TriggerResponse(
