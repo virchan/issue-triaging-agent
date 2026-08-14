@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
+import time
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -59,6 +60,7 @@ def fetch_and_judge(
     issue, since they don't change within a single run.
     """
 
+    start = time.monotonic()
     issues = github_client.fetch_issues_created_on(owner, repo, date, label=label)
     non_bot, bot = partition_bot_issues(issues)
 
@@ -86,13 +88,31 @@ def fetch_and_judge(
             save_judgment(connection, issue_id, judgment)
             judged_count += 1
         except (GeminiUnavailableError, GeminiResponseError) as error:
-            LOGGER.warning("Judgment failed for issue #%s: %s", issue.number, error)
+            LOGGER.warning(f"Judgment failed for issue #{issue.number}: {error}")
             failures.append((issue.number, str(error)))
 
-    return PipelineResult(
+    result = PipelineResult(
         fetched=len(issues),
         bot_excluded=len(bot),
         judged=judged_count,
         already_judged=already_judged_count,
         failures=failures,
     )
+
+    LOGGER.info(
+        f"Poll run completed for {owner}/{repo} on {date.isoformat()}",
+        extra={
+            "event": "poll_run",
+            "owner": owner,
+            "repo": repo,
+            "date": date.isoformat(),
+            "duration_seconds": time.monotonic() - start,
+            "fetched": result.fetched,
+            "bot_excluded": result.bot_excluded,
+            "judged": result.judged,
+            "already_judged": result.already_judged,
+            "failure_count": len(result.failures),
+        },
+    )
+
+    return result

@@ -60,6 +60,36 @@ def no_recent_examples(mocker: Any) -> Any:
     return mocker.patch("src.pipeline.get_recent_reviewed_judgments", return_value=[])
 
 
+def test_fetch_and_judge_logs_poll_run_summary(
+    mocker: Any, github_client: Any, gemini_judge: Any, connection: Any, caplog: Any
+) -> None:
+    github_client.fetch_issues_created_on.return_value = [_issue(1, "human")]
+    mocker.patch("src.pipeline.save_issue_snapshots", return_value={1: 101})
+    mocker.patch("src.pipeline.has_judgment", return_value=False)
+    mocker.patch("src.pipeline.save_judgment", return_value=201)
+
+    with caplog.at_level("INFO"):
+        fetch_and_judge(
+            github_client=github_client,
+            gemini_judge=gemini_judge,
+            connection=connection,
+            owner="scikit-learn",
+            repo="scikit-learn",
+            date=dt.date(2026, 8, 4),
+        )
+
+    records = [r for r in caplog.records if getattr(r, "event", None) == "poll_run"]
+    assert len(records) == 1
+    record = records[0]
+    assert record.owner == "scikit-learn"
+    assert record.repo == "scikit-learn"
+    assert record.date == "2026-08-04"
+    assert record.fetched == 1
+    assert record.judged == 1
+    assert record.failure_count == 0
+    assert record.duration_seconds >= 0
+
+
 def test_fetch_and_judge_happy_path(
     mocker: Any, github_client: Any, gemini_judge: Any, connection: Any
 ) -> None:

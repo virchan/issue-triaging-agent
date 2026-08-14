@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import logging
 from dataclasses import dataclass
 from typing import Any
 
@@ -15,6 +16,8 @@ from src.db import (
     mark_digest_published,
 )
 from src.github_client import GitHubClient
+
+LOGGER = logging.getLogger(__name__)
 
 _PRIORITY_ORDER = {"high": 0, "medium": 1, "low": 2}
 _PRIORITY_HEADINGS = {
@@ -139,11 +142,30 @@ def publish_digest(
     """
 
     if is_digest_published(connection, digest.digest_id):
+        LOGGER.info(
+            f"Digest {digest.digest_id} already published, skipping",
+            extra={
+                "event": "publish_outcome",
+                "digest_id": digest.digest_id,
+                "outcome": "already_published",
+            },
+        )
         return None
 
     issue_number, html_url = shadow_client.create_issue(
         shadow_owner, shadow_repo, digest.title, digest.body
     )
     mark_digest_published(connection, digest.digest_id, issue_number)
+
+    LOGGER.info(
+        f"Digest {digest.digest_id} published as {shadow_owner}/{shadow_repo}#{issue_number}",
+        extra={
+            "event": "publish_outcome",
+            "digest_id": digest.digest_id,
+            "outcome": "published",
+            "issue_number": issue_number,
+            "issue_count": digest.issue_count,
+        },
+    )
 
     return issue_number, html_url

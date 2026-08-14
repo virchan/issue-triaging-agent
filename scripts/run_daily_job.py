@@ -12,6 +12,7 @@ Run with:
 from __future__ import annotations
 
 import datetime as dt
+import logging
 import os
 
 from dotenv import load_dotenv
@@ -20,6 +21,9 @@ from src.daily_job import run_daily_cycle
 from src.db import connect
 from src.gemini_client import GeminiJudge
 from src.github_client import GitHubClient
+from src.logging_config import configure_logging
+
+LOGGER = logging.getLogger(__name__)
 
 SOURCE_OWNER = "scikit-learn"
 SOURCE_REPO = "scikit-learn"
@@ -31,29 +35,37 @@ GEMINI_MODEL = "gemini-3.5-flash"
 
 def main() -> None:
     load_dotenv()
+    configure_logging()
 
     today = dt.datetime.now(dt.UTC).date()
 
-    with (
-        GitHubClient(token=os.environ.get("GITHUB_TOKEN")) as github_client,
-        GitHubClient(token=os.environ["SHADOW_REPO_TOKEN"]) as shadow_client,
-        connect() as connection,
-    ):
-        gemini_judge = GeminiJudge(
-            model=GEMINI_MODEL, api_key=os.environ["GEMINI_API_KEY"]
+    try:
+        with (
+            GitHubClient(token=os.environ.get("GITHUB_TOKEN")) as github_client,
+            GitHubClient(token=os.environ["SHADOW_REPO_TOKEN"]) as shadow_client,
+            connect() as connection,
+        ):
+            gemini_judge = GeminiJudge(
+                model=GEMINI_MODEL, api_key=os.environ["GEMINI_API_KEY"]
+            )
+            result = run_daily_cycle(
+                github_client=github_client,
+                shadow_client=shadow_client,
+                gemini_judge=gemini_judge,
+                connection=connection,
+                source_owner=SOURCE_OWNER,
+                source_repo=SOURCE_REPO,
+                shadow_owner=SHADOW_OWNER,
+                shadow_repo=SHADOW_REPO,
+                label=TRIAGE_LABEL,
+                date=today,
+            )
+    except Exception:
+        LOGGER.exception(
+            f"Daily cycle failed for {today.isoformat()}",
+            extra={"event": "daily_cycle_failed", "date": today.isoformat()},
         )
-        result = run_daily_cycle(
-            github_client=github_client,
-            shadow_client=shadow_client,
-            gemini_judge=gemini_judge,
-            connection=connection,
-            source_owner=SOURCE_OWNER,
-            source_repo=SOURCE_REPO,
-            shadow_owner=SHADOW_OWNER,
-            shadow_repo=SHADOW_REPO,
-            label=TRIAGE_LABEL,
-            date=today,
-        )
+        raise
 
     print(f"Pipeline: {result.pipeline}")
     print(

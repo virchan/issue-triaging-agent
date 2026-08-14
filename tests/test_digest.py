@@ -111,26 +111,34 @@ def test_build_digest_aggregates_and_persists(mocker: Any, connection: Any) -> N
 
 
 def test_publish_digest_skips_if_already_published(
-    mocker: Any, connection: Any
+    mocker: Any, connection: Any, caplog: Any
 ) -> None:
     mocker.patch("src.digest.is_digest_published", return_value=True)
     shadow_client = mocker.Mock()
     digest = DigestContent(digest_id=7, title="t", body="b", issue_count=1)
 
-    result = publish_digest(
-        connection,
-        shadow_client,
-        digest,
-        shadow_owner="virchan",
-        shadow_repo="issue-triaging-agent-digests",
-    )
+    with caplog.at_level("INFO"):
+        result = publish_digest(
+            connection,
+            shadow_client,
+            digest,
+            shadow_owner="virchan",
+            shadow_repo="issue-triaging-agent-digests",
+        )
 
     assert result is None
     shadow_client.create_issue.assert_not_called()
 
+    records = [
+        r for r in caplog.records if getattr(r, "event", None) == "publish_outcome"
+    ]
+    assert len(records) == 1
+    assert records[0].outcome == "already_published"
+    assert records[0].digest_id == 7
+
 
 def test_publish_digest_creates_issue_and_marks_published(
-    mocker: Any, connection: Any
+    mocker: Any, connection: Any, caplog: Any
 ) -> None:
     mocker.patch("src.digest.is_digest_published", return_value=False)
     mark_published = mocker.patch("src.digest.mark_digest_published")
@@ -138,16 +146,25 @@ def test_publish_digest_creates_issue_and_marks_published(
     shadow_client.create_issue.return_value = (5, "https://example.com/issues/5")
     digest = DigestContent(digest_id=7, title="t", body="b", issue_count=1)
 
-    result = publish_digest(
-        connection,
-        shadow_client,
-        digest,
-        shadow_owner="virchan",
-        shadow_repo="issue-triaging-agent-digests",
-    )
+    with caplog.at_level("INFO"):
+        result = publish_digest(
+            connection,
+            shadow_client,
+            digest,
+            shadow_owner="virchan",
+            shadow_repo="issue-triaging-agent-digests",
+        )
 
     assert result == (5, "https://example.com/issues/5")
     shadow_client.create_issue.assert_called_once_with(
         "virchan", "issue-triaging-agent-digests", "t", "b"
     )
     mark_published.assert_called_once_with(connection, 7, 5)
+
+    records = [
+        r for r in caplog.records if getattr(r, "event", None) == "publish_outcome"
+    ]
+    assert len(records) == 1
+    assert records[0].outcome == "published"
+    assert records[0].issue_number == 5
+    assert records[0].issue_count == 1

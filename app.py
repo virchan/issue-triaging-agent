@@ -29,9 +29,11 @@ from src.gemini_client import (
     GeminiUnavailableError,
 )
 from src.github_client import GitHubClient, GitHubClientError
+from src.logging_config import configure_logging
 from src.pipeline import PipelineResult
 
 load_dotenv()
+configure_logging()
 
 LOGGER = logging.getLogger(__name__)
 

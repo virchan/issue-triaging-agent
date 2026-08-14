@@ -111,6 +111,38 @@ def test_judge_translates_provider_failure(client: Any, judge: GeminiJudge) -> N
         judge.judge(title="Some issue", body=None, known_labels=KNOWN_LABELS)
 
 
+def test_judge_logs_latency_on_success(
+    mocker: Any, client: Any, judge: GeminiJudge, caplog: Any
+) -> None:
+    client.models.generate_content.return_value = mocker.Mock(text=response_text())
+
+    with caplog.at_level("INFO"):
+        judge.judge(title="Some issue", body=None, known_labels=KNOWN_LABELS)
+
+    records = [
+        r for r in caplog.records if getattr(r, "event", None) == "judgment_latency"
+    ]
+    assert len(records) == 1
+    assert records[0].outcome == "ok"
+    assert records[0].model == "gemini-3.5-flash"
+    assert records[0].latency_seconds >= 0
+
+
+def test_judge_logs_latency_on_failure(
+    client: Any, judge: GeminiJudge, caplog: Any
+) -> None:
+    client.models.generate_content.side_effect = RuntimeError("provider details")
+
+    with caplog.at_level("INFO"), pytest.raises(GeminiUnavailableError):
+        judge.judge(title="Some issue", body=None, known_labels=KNOWN_LABELS)
+
+    records = [
+        r for r in caplog.records if getattr(r, "event", None) == "judgment_latency"
+    ]
+    assert len(records) == 1
+    assert records[0].outcome == "error"
+
+
 def test_judge_rejects_empty_response(
     mocker: Any, client: Any, judge: GeminiJudge
 ) -> None:

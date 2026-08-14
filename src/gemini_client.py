@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from typing import Any
 
 from google import genai
@@ -136,6 +137,7 @@ class GeminiJudge:
             recent_examples=recent_examples or [],
         )
 
+        start = time.monotonic()
         try:
             response = self._client.models.generate_content(
                 model=self._model,
@@ -147,10 +149,28 @@ class GeminiJudge:
                 ),
             )
         except Exception as error:
-            LOGGER.exception("Gemini judgment request failed for model %s", self._model)
+            LOGGER.exception(
+                f"Gemini judgment request failed for model {self._model}",
+                extra={
+                    "event": "judgment_latency",
+                    "model": self._model,
+                    "latency_seconds": time.monotonic() - start,
+                    "outcome": "error",
+                },
+            )
             raise GeminiUnavailableError(
                 "The judgment service could not complete the request."
             ) from error
+
+        LOGGER.info(
+            f"Gemini judgment request completed for model {self._model}",
+            extra={
+                "event": "judgment_latency",
+                "model": self._model,
+                "latency_seconds": time.monotonic() - start,
+                "outcome": "ok",
+            },
+        )
 
         response_text = getattr(response, "text", None)
         if not response_text:
