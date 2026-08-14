@@ -263,7 +263,7 @@ def test_format_examples_shows_correction_and_confirmation() -> None:
     text = _format_examples(examples)
 
     assert "Corrected issue" in text
-    assert "corrected by the operator: '#1 should be Documentation'" in text
+    assert "corrected: '#1 should be Documentation'" in text
     assert "Confirmed issue" in text
     assert "confirmed correct, no correction needed" in text
 

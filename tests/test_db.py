@@ -8,6 +8,7 @@ import pytest
 from src.db import (
     connect,
     get_all_reviewed_judgments,
+    get_latest_digest_window_end,
     get_recent_reviewed_judgments,
     get_unreviewed_digests,
     save_issue_snapshot,
@@ -186,6 +187,27 @@ def test_get_all_reviewed_judgments_maps_rows_unbounded(mocker: Any) -> None:
     assert results[0].correction_text == "#34648 should be labelled as array API."
     sql = cursor.execute.call_args.args[0]
     assert "LIMIT" not in sql
+
+
+def test_get_latest_digest_window_end_returns_most_recent(mocker: Any) -> None:
+    connection, cursor = _mock_connection(mocker)
+    cursor.fetchone.return_value = (dt.datetime(2026, 8, 14, 0, 0, 23, tzinfo=dt.UTC),)
+
+    result = get_latest_digest_window_end(connection)
+
+    assert result == dt.datetime(2026, 8, 14, 0, 0, 23, tzinfo=dt.UTC)
+    sql = cursor.execute.call_args.args[0]
+    assert "ORDER BY window_end DESC" in sql
+    assert "LIMIT 1" in sql
+
+
+def test_get_latest_digest_window_end_returns_none_when_no_digests(
+    mocker: Any,
+) -> None:
+    connection, cursor = _mock_connection(mocker)
+    cursor.fetchone.return_value = None
+
+    assert get_latest_digest_window_end(connection) is None
 
 
 def test_connect_reads_database_url_from_environment(

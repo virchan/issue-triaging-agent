@@ -87,8 +87,11 @@ def connection(mocker: Any) -> Any:
 
 
 def test_build_digest_aggregates_and_persists(mocker: Any, connection: Any) -> None:
+    window_start = dt.datetime(2026, 8, 3, 20, 0, 0, tzinfo=dt.UTC)
+    window_end = dt.datetime(2026, 8, 4, 20, 0, 0, tzinfo=dt.UTC)  # 13:00 PDT Aug 4
+
     issues = [_judged_issue(1, judgment_id=501)]
-    mocker.patch("src.digest.get_judged_issues_for_date", return_value=issues)
+    mocker.patch("src.digest.get_judged_issues_in_window", return_value=issues)
     create_digest = mocker.patch("src.digest.create_digest", return_value=7)
     link = mocker.patch("src.digest.link_judgments_to_digest")
 
@@ -98,14 +101,15 @@ def test_build_digest_aggregates_and_persists(mocker: Any, connection: Any) -> N
         source_repo="scikit-learn",
         shadow_owner="virchan",
         shadow_repo="issue-triaging-agent-digests",
-        date=dt.date(2026, 8, 4),
+        window_start=window_start,
+        window_end=window_end,
     )
 
     assert content.digest_id == 7
     assert content.issue_count == 1
     assert content.title == "Triage digest — 2026-08-04"
     create_digest.assert_called_once_with(
-        connection, "virchan", "issue-triaging-agent-digests", dt.date(2026, 8, 4)
+        connection, "virchan", "issue-triaging-agent-digests", window_start, window_end
     )
     link.assert_called_once_with(connection, 7, [501])
 

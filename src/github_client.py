@@ -46,7 +46,7 @@ def _parse_issue(item: dict[str, Any]) -> GitHubIssue:
 class GitHubClient:
     """Small wrapper around the GitHub REST/Search API.
 
-    Read methods (fetch_issues_created_on, fetch_labels) are used against
+    Read methods (fetch_issues_created_between, fetch_labels) are used against
     scikit-learn with no token or GITHUB_TOKEN. create_issue is used
     against the shadow repo with SHADOW_REPO_TOKEN - a separate instance,
     constructed with a different token, per the deliberate read/write
@@ -68,21 +68,29 @@ class GitHubClient:
             timeout=timeout,
         )
 
-    def fetch_issues_created_on(
+    def fetch_issues_created_between(
         self,
         owner: str,
         repo: str,
-        date: dt.date,
+        window_start: dt.datetime,
+        window_end: dt.datetime,
         label: str | None = None,
     ) -> list[GitHubIssue]:
-        """Fetch issues (not pull requests) created on the given UTC date.
+        """Fetch issues (not pull requests) created in [window_start, window_end).
 
-        If label is given, only issues carrying that exact label are
-        returned (e.g. "Needs Triage") - quoted in the query since
-        labels can contain spaces.
+        A relative time-range query, not a fixed calendar-day match - see
+        LOG.md entry 53 for why: a fixed-day query requires deciding
+        "which day, in which timezone," which is exactly the decision
+        that broke on the first real scheduled run. A range query has no
+        such decision to get wrong. If label is given, only issues
+        carrying that exact label are returned (e.g. "Needs Triage") -
+        quoted in the query since labels can contain spaces.
         """
 
-        query = f"repo:{owner}/{repo} is:issue created:{date.isoformat()}"
+        query = (
+            f"repo:{owner}/{repo} is:issue "
+            f"created:{window_start.isoformat()}..{window_end.isoformat()}"
+        )
         if label:
             query += f' label:"{label}"'
 

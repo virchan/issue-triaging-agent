@@ -7,11 +7,16 @@ from typing import Any
 import psycopg
 
 from src.corrections import CaptureResult, capture_corrections
-from src.db import get_unreviewed_digests
+from src.db import get_latest_digest_window_end, get_unreviewed_digests
 from src.digest import DigestContent, build_digest, publish_digest
 from src.gemini_client import GeminiJudge
 from src.github_client import GitHubClient
 from src.pipeline import PipelineResult, fetch_and_judge
+
+# How far back the very first poll ever looks, when there's no previous
+# digest's window_end to chain from. Matches the daily cadence; only used
+# once, on the first real run.
+BOOTSTRAP_WINDOW = dt.timedelta(hours=24)
 
 
 @dataclass
@@ -37,13 +42,18 @@ def run_daily_cycle(
     shadow_owner: str,
     shadow_repo: str,
     label: str | None,
-    date: dt.date,
 ) -> DailyCycleResult:
     """Run the full state machine: fetched -> filtered/judged -> digested
     -> published -> reviewed/corrected -> closed.
 
-    Forward half (today's issues through publishing a new digest) runs
-    first, then every previously-published digest not yet marked
+    The poll window is computed here, not passed in by the caller - see
+    LOG.md entry 53. window_start is the previous digest's window_end (a
+    watermark, not "today"), so a late or missed run automatically
+    covers the full gap next time, and callers no longer need to reason
+    about timezones or calendar days at all. window_end is always now.
+
+    Forward half (this window's issues through publishing a new digest)
+    runs first, then every previously-published digest not yet marked
     reviewed is checked - capture_corrections is a no-op for any whose
     GitHub issue isn't closed yet, so calling it here is always safe,
     not just when a digest is known to be ready.
@@ -52,13 +62,22 @@ def run_daily_cycle(
     be authenticated with SHADOW_REPO_TOKEN (shadow repo writes).
     """
 
+    window_end = dt.datetime.now(dt.UTC)
+    previous_window_end = get_latest_digest_window_end(connection)
+    window_start = (
+        previous_window_end
+        if previous_window_end is not None
+        else window_end - BOOTSTRAP_WINDOW
+    )
+
     pipeline_result = fetch_and_judge(
         github_client=github_client,
         gemini_judge=gemini_judge,
         connection=connection,
         owner=source_owner,
         repo=source_repo,
-        date=date,
+        window_start=window_start,
+        window_end=window_end,
         label=label,
     )
 
@@ -68,7 +87,8 @@ def run_daily_cycle(
         source_repo=source_repo,
         shadow_owner=shadow_owner,
         shadow_repo=shadow_repo,
-        date=date,
+        window_start=window_start,
+        window_end=window_end,
     )
 
     published = publish_digest(

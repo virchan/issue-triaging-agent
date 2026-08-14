@@ -183,13 +183,15 @@ class JudgedIssue:
     judgment: IssueJudgment
 
 
-def get_judged_issues_for_date(
+def get_judged_issues_in_window(
     connection: psycopg.Connection[Any],
     repo_owner: str,
     repo_name: str,
-    date: dt.date,
+    window_start: dt.datetime,
+    window_end: dt.datetime,
 ) -> list[JudgedIssue]:
-    """Fetch non-bot issues created on `date` that already have a judgment."""
+    """Fetch non-bot issues created in [window_start, window_end) that
+    already have a judgment."""
 
     with connection.cursor() as cursor:
         cursor.execute(
@@ -200,11 +202,11 @@ def get_judged_issues_for_date(
             FROM issues i
             JOIN judgments j ON j.issue_id = i.id
             WHERE i.repo_owner = %s AND i.repo_name = %s
-              AND i.github_created_at::date = %s
+              AND i.github_created_at >= %s AND i.github_created_at < %s
               AND i.is_bot = FALSE
             ORDER BY i.github_number
             """,
-            (repo_owner, repo_name, date),
+            (repo_owner, repo_name, window_start, window_end),
         )
         rows = cursor.fetchall()
 
@@ -232,38 +234,49 @@ def create_digest(
     connection: psycopg.Connection[Any],
     shadow_repo_owner: str,
     shadow_repo_name: str,
-    date: dt.date,
+    window_start: dt.datetime,
+    window_end: dt.datetime,
 ) -> int:
-    """Create a pending digest row for `date`, or return the existing one's id.
+    """Create a new digest row for [window_start, window_end).
 
-    Idempotent on digest_date, same pattern as save_issue_snapshot. The
-    unique constraint is on digest_date alone (not per shadow repo),
-    which is correct for the current single-source/single-shadow-repo
-    scope - would need revisiting if a second source or shadow repo were
-    ever added.
+    No uniqueness constraint on the window: each run's window_start is
+    derived from the previous digest's window_end (see
+    get_latest_digest_window_end), so windows chain together and don't
+    naturally collide. A double-invocation just produces a second,
+    narrower window rather than a duplicate - has_judgment already
+    prevents re-judging any issue that window happens to re-fetch.
     """
 
     with connection.cursor() as cursor:
         cursor.execute(
             """
-            INSERT INTO digests (digest_date, shadow_repo_owner, shadow_repo_name)
-            VALUES (%s, %s, %s)
-            ON CONFLICT (digest_date) DO NOTHING
+            INSERT INTO digests (window_start, window_end, shadow_repo_owner, shadow_repo_name)
+            VALUES (%s, %s, %s, %s)
             RETURNING id
             """,
-            (date, shadow_repo_owner, shadow_repo_name),
+            (window_start, window_end, shadow_repo_owner, shadow_repo_name),
         )
         row = cursor.fetchone()
-        if row is not None:
-            return row[0]
+        assert row is not None
+        return row[0]
 
+
+def get_latest_digest_window_end(
+    connection: psycopg.Connection[Any],
+) -> dt.datetime | None:
+    """The most recent digest's window_end, or None if no digest exists yet.
+
+    The watermark the next poll's window_start is derived from - see
+    LOG.md entry 53. None only for the very first run ever, before any
+    digest has been created.
+    """
+
+    with connection.cursor() as cursor:
         cursor.execute(
-            "SELECT id FROM digests WHERE digest_date = %s",
-            (date,),
+            "SELECT window_end FROM digests ORDER BY window_end DESC LIMIT 1"
         )
-        existing = cursor.fetchone()
-        assert existing is not None
-        return existing[0]
+        row = cursor.fetchone()
+        return row[0] if row is not None else None
 
 
 def link_judgments_to_digest(
@@ -430,7 +443,7 @@ def get_recent_reviewed_judgments(
             JOIN digests d ON d.id = j.digest_id
             LEFT JOIN corrections c ON c.judgment_id = j.id
             WHERE d.state = 'reviewed'
-            ORDER BY d.digest_date DESC, j.id DESC
+            ORDER BY d.window_end DESC, j.id DESC
             LIMIT %s
             """,
             (limit,),
@@ -472,6 +485,9 @@ class GoldenExample:
     judgment: IssueJudgment
     correction_text: str | None
     digest_date: dt.date
+    """Pacific calendar date the digest's window ended on - a display
+    label derived from window_end, not part of the digest's identity.
+    See LOG.md entry 53."""
 
 
 def get_all_reviewed_judgments(
@@ -489,13 +505,14 @@ def get_all_reviewed_judgments(
             """
             SELECT i.github_number, i.title, i.body, j.suggested_label,
                    j.is_spam, j.summary, j.priority, j.rationale,
-                   j.confidence, c.comment_body, d.digest_date
+                   j.confidence, c.comment_body,
+                   (d.window_end AT TIME ZONE 'America/Los_Angeles')::date
             FROM judgments j
             JOIN issues i ON i.id = j.issue_id
             JOIN digests d ON d.id = j.digest_id
             LEFT JOIN corrections c ON c.judgment_id = j.id
             WHERE d.state = 'reviewed'
-            ORDER BY d.digest_date ASC, j.id ASC
+            ORDER BY d.window_end ASC, j.id ASC
             """
         )
         rows = cursor.fetchall()
@@ -531,6 +548,9 @@ class JudgmentAuditEntry:
     priority: str
     confidence: float
     digest_date: dt.date | None
+    """Pacific calendar date the digest's window ended on - a display
+    label derived from window_end, not part of the digest's identity.
+    See LOG.md entry 53."""
     digest_state: str | None
     correction_text: str | None
 
@@ -548,7 +568,9 @@ def get_judgment_audit_trail(
         cursor.execute(
             """
             SELECT i.github_number, i.title, j.suggested_label, j.is_spam,
-                   j.priority, j.confidence, d.digest_date, d.state, c.comment_body
+                   j.priority, j.confidence,
+                   (d.window_end AT TIME ZONE 'America/Los_Angeles')::date,
+                   d.state, c.comment_body
             FROM judgments j
             JOIN issues i ON i.id = j.issue_id
             LEFT JOIN digests d ON d.id = j.digest_id
@@ -598,7 +620,7 @@ def get_unreviewed_digests(
             SELECT id, shadow_repo_owner, shadow_repo_name, shadow_issue_number
             FROM digests
             WHERE state = 'published'
-            ORDER BY digest_date ASC
+            ORDER BY window_end ASC
             """
         )
         rows = cursor.fetchall()

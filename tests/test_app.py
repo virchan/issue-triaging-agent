@@ -140,6 +140,34 @@ def test_trigger_runs_pipeline_with_correct_token(
     assert body["reviews"] == []
 
 
+def test_trigger_does_not_pass_a_date_kwarg(
+    mocker: Any, client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The poll window is computed inside run_daily_cycle now, not by the
+    caller - see LOG.md entry 53. /trigger must not resurrect a "today"
+    concept of its own."""
+
+    monkeypatch.setenv("TRIGGER_SECRET", "the-real-secret")
+    monkeypatch.setenv("GEMINI_API_KEY", "fake-key")
+    monkeypatch.setenv("SHADOW_REPO_TOKEN", "fake-token")
+
+    mocker.patch("app.connect", return_value=mocker.MagicMock())
+    mocker.patch("app.GitHubClient", return_value=mocker.MagicMock())
+    mocker.patch("app.GeminiJudge", return_value=mocker.MagicMock())
+
+    cycle_result = DailyCycleResult(
+        pipeline=PipelineResult(fetched=0, bot_excluded=0, judged=0, already_judged=0),
+        digest=DigestContent(digest_id=1, title="t", body="b", issue_count=0),
+        published=None,
+        reviews=[],
+    )
+    run_daily_cycle = mocker.patch("app.run_daily_cycle", return_value=cycle_result)
+
+    client.post("/trigger", headers={"X-Trigger-Token": "the-real-secret"})
+
+    assert "date" not in run_daily_cycle.call_args.kwargs
+
+
 def test_trigger_returns_502_on_github_failure(
     mocker: Any, client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -8,11 +8,11 @@ from src.judgment import IssueJudgment
 class EvalOutcome(str, Enum):
     """Result of comparing a new judgment against one golden example.
 
-    PASS: the golden example was confirmed correct by the operator, and
-    the new judgment matches it exactly on the structured decision
-    fields (suggested_label, is_spam, priority) - free-text fields
-    (summary, rationale) are deliberately not compared, since differently
-    worded but equally correct phrasing shouldn't count as a failure.
+    PASS: the golden example was confirmed correct, and the new judgment
+    matches it exactly on the structured decision fields (suggested_label,
+    is_spam, priority) - free-text fields (summary, rationale) are
+    deliberately not compared, since differently worded but equally
+    correct phrasing shouldn't count as a failure.
 
     REGRESSION: either (a) a confirmed example whose new judgment no
     longer matches a previously-confirmed-correct answer, or (b) a
@@ -24,7 +24,7 @@ class EvalOutcome(str, Enum):
     the original (wrong) one. Not an automatic pass: the correction was
     free text (e.g. "#34648 should be labelled as \"array API\"."), not
     a structured expected answer, so there's no automated way to confirm
-    the new judgment actually satisfies what the operator meant. Flagged
+    the new judgment actually satisfies the correction's intent. Flagged
     for human review rather than faked as a pass - see design-plan.md
     §8's call for "an explicit rubric for partial credit vs. failure"
     instead of an exact-match-only comparison that can't represent this

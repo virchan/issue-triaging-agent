@@ -75,9 +75,7 @@ def _format_examples(examples: list[ReviewedJudgment]) -> str:
             f"is_spam={judgment.is_spam}, priority={judgment.priority}"
         )
         if example.correction_text:
-            lines.append(
-                f"   Outcome: corrected by the operator: {example.correction_text!r}"
-            )
+            lines.append(f"   Outcome: corrected: {example.correction_text!r}")
         else:
             lines.append("   Outcome: confirmed correct, no correction needed")
         lines.append("")

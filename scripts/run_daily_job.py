@@ -11,7 +11,6 @@ Run with:
 
 from __future__ import annotations
 
-import datetime as dt
 import logging
 import os
 
@@ -37,8 +36,6 @@ def main() -> None:
     load_dotenv()
     configure_logging()
 
-    today = dt.datetime.now(dt.UTC).date()
-
     try:
         with (
             GitHubClient(token=os.environ.get("GITHUB_TOKEN")) as github_client,
@@ -58,13 +55,9 @@ def main() -> None:
                 shadow_owner=SHADOW_OWNER,
                 shadow_repo=SHADOW_REPO,
                 label=TRIAGE_LABEL,
-                date=today,
             )
     except Exception:
-        LOGGER.exception(
-            f"Daily cycle failed for {today.isoformat()}",
-            extra={"event": "daily_cycle_failed", "date": today.isoformat()},
-        )
+        LOGGER.exception("Daily cycle failed", extra={"event": "daily_cycle_failed"})
         raise
 
     print(f"Pipeline: {result.pipeline}")

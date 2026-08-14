@@ -67,3 +67,35 @@ def test_main_does_not_log_failure_event_on_success(mocker: Any, caplog: Any) ->
         r for r in caplog.records if getattr(r, "event", None) == "daily_cycle_failed"
     ]
     assert records == []
+
+
+def test_main_does_not_pass_a_date_kwarg(mocker: Any) -> None:
+    """The poll window is computed inside run_daily_cycle now, not by the
+    caller - see LOG.md entry 53. main() must not resurrect a "today"
+    concept of its own (that's exactly what caused the real 2026-08-13/14
+    incident: the schedule fires at 00:00 UTC/17:00 PDT, so a UTC-based
+    "today" was 0 seconds old at run time)."""
+
+    mocker.patch.object(
+        run_daily_job_module, "GitHubClient", return_value=mocker.MagicMock()
+    )
+    mocker.patch.object(
+        run_daily_job_module, "GeminiJudge", return_value=mocker.MagicMock()
+    )
+    mocker.patch.object(
+        run_daily_job_module, "connect", return_value=mocker.MagicMock()
+    )
+
+    cycle_result = mocker.MagicMock()
+    cycle_result.pipeline = "pipeline-summary"
+    cycle_result.digest.digest_id = 1
+    cycle_result.digest.issue_count = 0
+    cycle_result.published = None
+    cycle_result.reviews = []
+    run_daily_cycle = mocker.patch.object(
+        run_daily_job_module, "run_daily_cycle", return_value=cycle_result
+    )
+
+    main()
+
+    assert "date" not in run_daily_cycle.call_args.kwargs

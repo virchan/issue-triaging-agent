@@ -17,11 +17,15 @@ CREATE TABLE IF NOT EXISTS issues (
     UNIQUE (repo_owner, repo_name, github_number)
 );
 
--- One row per calendar day's digest, published to the operator-owned
--- shadow repo (see design-plan.md §3 and LOG.md entries 2-3).
+-- One row per polled time window's digest, published to the operator-owned
+-- shadow repo (see design-plan.md §3 and LOG.md entries 2-3). window_start
+-- is the previous digest's window_end (a watermark, not a calendar day) -
+-- see LOG.md entry 53 for why: a fixed calendar-day design broke on the
+-- very first real scheduled run (17:00 PDT lands exactly on 00:00 UTC).
 CREATE TABLE IF NOT EXISTS digests (
     id                      SERIAL PRIMARY KEY,
-    digest_date             DATE NOT NULL UNIQUE,
+    window_start            TIMESTAMPTZ NOT NULL,
+    window_end              TIMESTAMPTZ NOT NULL,
     shadow_repo_owner       TEXT NOT NULL,
     shadow_repo_name        TEXT NOT NULL,
     shadow_issue_number     INTEGER,

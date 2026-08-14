@@ -4,13 +4,14 @@ import datetime as dt
 import logging
 from dataclasses import dataclass
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import psycopg
 
 from src.db import (
     JudgedIssue,
     create_digest,
-    get_judged_issues_for_date,
+    get_judged_issues_in_window,
     is_digest_published,
     link_judgments_to_digest,
     mark_digest_published,
@@ -18,6 +19,12 @@ from src.db import (
 from src.github_client import GitHubClient
 
 LOGGER = logging.getLogger(__name__)
+
+# Display only - see LOG.md entry 53. The digest's actual identity is
+# [window_start, window_end); this only decides what calendar date the
+# title/body show a human, and can never cause a query to miss data the
+# way computing "today" in the wrong timezone did.
+OPERATOR_TIMEZONE = ZoneInfo("America/Los_Angeles")
 
 _PRIORITY_ORDER = {"high": 0, "medium": 1, "low": 2}
 _PRIORITY_HEADINGS = {
@@ -95,26 +102,33 @@ def build_digest(
     source_repo: str,
     shadow_owner: str,
     shadow_repo: str,
-    date: dt.date,
+    window_start: dt.datetime,
+    window_end: dt.datetime,
 ) -> DigestContent:
-    """Aggregate a day's judged issues into digest content.
+    """Aggregate a window's judged issues into digest content.
 
     Persists the digest record and links each judgment to it, but does
-    not publish anything to GitHub - see publish_digest.
+    not publish anything to GitHub - see publish_digest. The title/body
+    show window_end's Pacific calendar date - display only, not the
+    digest's identity (see LOG.md entry 53).
     """
 
-    judged_issues = get_judged_issues_for_date(
-        connection, source_owner, source_repo, date
+    display_date = window_end.astimezone(OPERATOR_TIMEZONE).date()
+
+    judged_issues = get_judged_issues_in_window(
+        connection, source_owner, source_repo, window_start, window_end
     )
-    digest_id = create_digest(connection, shadow_owner, shadow_repo, date)
+    digest_id = create_digest(
+        connection, shadow_owner, shadow_repo, window_start, window_end
+    )
     link_judgments_to_digest(
         connection, digest_id, [item.judgment_id for item in judged_issues]
     )
 
     return DigestContent(
         digest_id=digest_id,
-        title=format_digest_title(date),
-        body=format_digest_body(date, judged_issues),
+        title=format_digest_title(display_date),
+        body=format_digest_body(display_date, judged_issues),
         issue_count=len(judged_issues),
     )
 

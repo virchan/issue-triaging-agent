@@ -10,7 +10,6 @@ Run locally with:
 
 from __future__ import annotations
 
-import datetime as dt
 import logging
 import os
 
@@ -85,10 +84,12 @@ def judgments(limit: int = Query(default=50, gt=0, le=500)) -> list[JudgmentAudi
 
 @app.post("/trigger")
 def trigger(x_trigger_token: str | None = Header(default=None)) -> TriggerResponse:
-    """Manually run the full state machine: today's fetch -> judge ->
-    digest -> publish, plus correction capture for any previously-
-    published digest not yet marked reviewed (a no-op for any whose
-    GitHub issue isn't closed yet).
+    """Manually run the full state machine: fetch -> judge -> digest ->
+    publish, plus correction capture for any previously-published digest
+    not yet marked reviewed (a no-op for any whose GitHub issue isn't
+    closed yet). The poll window (see LOG.md entry 53) is computed inside
+    run_daily_cycle, same as the scheduled job - this endpoint runs the
+    identical logic on demand, not a separate "today" concept.
 
     Requires a shared-secret header (TRIGGER_SECRET) - this endpoint
     spends real Gemini/GitHub API calls and posts a real issue, so it
@@ -98,8 +99,6 @@ def trigger(x_trigger_token: str | None = Header(default=None)) -> TriggerRespon
     expected_token = os.environ.get("TRIGGER_SECRET")
     if not expected_token or x_trigger_token != expected_token:
         raise HTTPException(status_code=401, detail="Missing or invalid trigger token.")
-
-    today = dt.datetime.now(dt.UTC).date()
 
     try:
         with (
@@ -120,7 +119,6 @@ def trigger(x_trigger_token: str | None = Header(default=None)) -> TriggerRespon
                 shadow_owner=SHADOW_OWNER,
                 shadow_repo=SHADOW_REPO,
                 label=TRIAGE_LABEL,
-                date=today,
             )
     except (
         GitHubClientError,

@@ -27,7 +27,11 @@ def _mock_response(mocker: Any, items: list[dict[str, Any]]) -> Any:
     return response
 
 
-def test_fetch_issues_created_on_parses_response(mocker: Any) -> None:
+WINDOW_START = dt.datetime(2026, 8, 4, 0, 0, 0, tzinfo=dt.UTC)
+WINDOW_END = dt.datetime(2026, 8, 5, 0, 0, 0, tzinfo=dt.UTC)
+
+
+def test_fetch_issues_created_between_parses_response(mocker: Any) -> None:
     get = mocker.patch.object(
         httpx.Client,
         "get",
@@ -35,8 +39,8 @@ def test_fetch_issues_created_on_parses_response(mocker: Any) -> None:
     )
 
     client = GitHubClient()
-    issues = client.fetch_issues_created_on(
-        "scikit-learn", "scikit-learn", dt.date(2026, 8, 4)
+    issues = client.fetch_issues_created_between(
+        "scikit-learn", "scikit-learn", WINDOW_START, WINDOW_END
     )
 
     assert len(issues) == 1
@@ -49,77 +53,86 @@ def test_fetch_issues_created_on_parses_response(mocker: Any) -> None:
     get.assert_called_once()
 
 
-def test_fetch_issues_created_on_handles_null_body(mocker: Any) -> None:
+def test_fetch_issues_created_between_handles_null_body(mocker: Any) -> None:
     raw = _raw_issue(1)
     raw["body"] = None
     mocker.patch.object(httpx.Client, "get", return_value=_mock_response(mocker, [raw]))
 
     client = GitHubClient()
-    issues = client.fetch_issues_created_on(
-        "scikit-learn", "scikit-learn", dt.date(2026, 8, 4)
+    issues = client.fetch_issues_created_between(
+        "scikit-learn", "scikit-learn", WINDOW_START, WINDOW_END
     )
 
     assert issues[0].body is None
 
 
-def test_fetch_issues_created_on_builds_expected_query(mocker: Any) -> None:
+def test_fetch_issues_created_between_builds_expected_query(mocker: Any) -> None:
     get = mocker.patch.object(
         httpx.Client, "get", return_value=_mock_response(mocker, [])
     )
 
     client = GitHubClient()
-    client.fetch_issues_created_on("scikit-learn", "scikit-learn", dt.date(2026, 8, 4))
-
-    _, kwargs = get.call_args
-    assert (
-        kwargs["params"]["q"]
-        == "repo:scikit-learn/scikit-learn is:issue created:2026-08-04"
-    )
-
-
-def test_fetch_issues_created_on_adds_label_filter_when_given(mocker: Any) -> None:
-    get = mocker.patch.object(
-        httpx.Client, "get", return_value=_mock_response(mocker, [])
-    )
-
-    client = GitHubClient()
-    client.fetch_issues_created_on(
-        "scikit-learn", "scikit-learn", dt.date(2026, 8, 4), label="Needs Triage"
+    client.fetch_issues_created_between(
+        "scikit-learn", "scikit-learn", WINDOW_START, WINDOW_END
     )
 
     _, kwargs = get.call_args
     assert kwargs["params"]["q"] == (
-        'repo:scikit-learn/scikit-learn is:issue created:2026-08-04 label:"Needs Triage"'
+        "repo:scikit-learn/scikit-learn is:issue "
+        "created:2026-08-04T00:00:00+00:00..2026-08-05T00:00:00+00:00"
     )
 
 
-def test_fetch_issues_created_on_omits_label_filter_by_default(mocker: Any) -> None:
+def test_fetch_issues_created_between_adds_label_filter_when_given(
+    mocker: Any,
+) -> None:
     get = mocker.patch.object(
         httpx.Client, "get", return_value=_mock_response(mocker, [])
     )
 
     client = GitHubClient()
-    client.fetch_issues_created_on("scikit-learn", "scikit-learn", dt.date(2026, 8, 4))
+    client.fetch_issues_created_between(
+        "scikit-learn", "scikit-learn", WINDOW_START, WINDOW_END, label="Needs Triage"
+    )
+
+    _, kwargs = get.call_args
+    assert kwargs["params"]["q"] == (
+        "repo:scikit-learn/scikit-learn is:issue "
+        'created:2026-08-04T00:00:00+00:00..2026-08-05T00:00:00+00:00 label:"Needs Triage"'
+    )
+
+
+def test_fetch_issues_created_between_omits_label_filter_by_default(
+    mocker: Any,
+) -> None:
+    get = mocker.patch.object(
+        httpx.Client, "get", return_value=_mock_response(mocker, [])
+    )
+
+    client = GitHubClient()
+    client.fetch_issues_created_between(
+        "scikit-learn", "scikit-learn", WINDOW_START, WINDOW_END
+    )
 
     _, kwargs = get.call_args
     assert "label:" not in kwargs["params"]["q"]
 
 
-def test_fetch_issues_created_on_paginates(mocker: Any) -> None:
+def test_fetch_issues_created_between_paginates(mocker: Any) -> None:
     page_1 = _mock_response(mocker, [_raw_issue(i) for i in range(100)])
     page_2 = _mock_response(mocker, [_raw_issue(100)])
     get = mocker.patch.object(httpx.Client, "get", side_effect=[page_1, page_2])
 
     client = GitHubClient()
-    issues = client.fetch_issues_created_on(
-        "scikit-learn", "scikit-learn", dt.date(2026, 8, 4)
+    issues = client.fetch_issues_created_between(
+        "scikit-learn", "scikit-learn", WINDOW_START, WINDOW_END
     )
 
     assert len(issues) == 101
     assert get.call_count == 2
 
 
-def test_fetch_issues_created_on_wraps_http_errors(mocker: Any) -> None:
+def test_fetch_issues_created_between_wraps_http_errors(mocker: Any) -> None:
     response = mocker.Mock()
     response.raise_for_status.side_effect = httpx.HTTPStatusError(
         "boom", request=mocker.Mock(), response=mocker.Mock()
@@ -128,12 +141,12 @@ def test_fetch_issues_created_on_wraps_http_errors(mocker: Any) -> None:
 
     client = GitHubClient()
     with pytest.raises(GitHubClientError):
-        client.fetch_issues_created_on(
-            "scikit-learn", "scikit-learn", dt.date(2026, 8, 4)
+        client.fetch_issues_created_between(
+            "scikit-learn", "scikit-learn", WINDOW_START, WINDOW_END
         )
 
 
-def test_fetch_issues_created_on_wraps_malformed_response(mocker: Any) -> None:
+def test_fetch_issues_created_between_wraps_malformed_response(mocker: Any) -> None:
     response = mocker.Mock()
     response.raise_for_status.return_value = None
     response.json.return_value = {"items": [{"title": "missing the number field"}]}
@@ -141,8 +154,8 @@ def test_fetch_issues_created_on_wraps_malformed_response(mocker: Any) -> None:
 
     client = GitHubClient()
     with pytest.raises(GitHubClientError):
-        client.fetch_issues_created_on(
-            "scikit-learn", "scikit-learn", dt.date(2026, 8, 4)
+        client.fetch_issues_created_between(
+            "scikit-learn", "scikit-learn", WINDOW_START, WINDOW_END
         )
 
 

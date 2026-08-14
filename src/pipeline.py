@@ -39,10 +39,12 @@ def fetch_and_judge(
     connection: psycopg.Connection[Any],
     owner: str,
     repo: str,
-    date: dt.date,
+    window_start: dt.datetime,
+    window_end: dt.datetime,
     label: str | None = None,
 ) -> PipelineResult:
-    """Fetch issues created on `date`, filter, judge, and persist everything.
+    """Fetch issues created in [window_start, window_end), filter, judge,
+    and persist everything.
 
     If label is given (e.g. "Needs Triage"), only issues carrying that
     label are fetched in the first place - issues a maintainer has
@@ -51,8 +53,8 @@ def fetch_and_judge(
 
     A single issue's judgment failure is logged and skipped rather than
     aborting the whole run - one bad issue should not block the rest of
-    the day's digest. Digest aggregation and shadow-repo publishing are
-    not part of this function - see later steps.
+    the digest. Digest aggregation and shadow-repo publishing are not
+    part of this function - see later steps.
 
     Recent reviewed judgments (real corrections and confirmations, see
     src.db.get_recent_reviewed_judgments) are fetched once per run and
@@ -61,7 +63,9 @@ def fetch_and_judge(
     """
 
     start = time.monotonic()
-    issues = github_client.fetch_issues_created_on(owner, repo, date, label=label)
+    issues = github_client.fetch_issues_created_between(
+        owner, repo, window_start, window_end, label=label
+    )
     non_bot, bot = partition_bot_issues(issues)
 
     ids_by_number = save_issue_snapshots(connection, owner, repo, non_bot, bot)
@@ -100,12 +104,14 @@ def fetch_and_judge(
     )
 
     LOGGER.info(
-        f"Poll run completed for {owner}/{repo} on {date.isoformat()}",
+        f"Poll run completed for {owner}/{repo}, "
+        f"window {window_start.isoformat()} to {window_end.isoformat()}",
         extra={
             "event": "poll_run",
             "owner": owner,
             "repo": repo,
-            "date": date.isoformat(),
+            "window_start": window_start.isoformat(),
+            "window_end": window_end.isoformat(),
             "duration_seconds": time.monotonic() - start,
             "fetched": result.fetched,
             "bot_excluded": result.bot_excluded,

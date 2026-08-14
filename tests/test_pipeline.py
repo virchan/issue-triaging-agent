@@ -11,6 +11,9 @@ from src.github_client import GitHubIssue
 from src.judgment import IssueJudgment
 from src.pipeline import fetch_and_judge
 
+WINDOW_START = dt.datetime(2026, 8, 3, 20, 0, 0, tzinfo=dt.UTC)
+WINDOW_END = dt.datetime(2026, 8, 4, 20, 0, 0, tzinfo=dt.UTC)
+
 
 def _issue(number: int, author_login: str = "reporter") -> GitHubIssue:
     return GitHubIssue(
@@ -63,7 +66,7 @@ def no_recent_examples(mocker: Any) -> Any:
 def test_fetch_and_judge_logs_poll_run_summary(
     mocker: Any, github_client: Any, gemini_judge: Any, connection: Any, caplog: Any
 ) -> None:
-    github_client.fetch_issues_created_on.return_value = [_issue(1, "human")]
+    github_client.fetch_issues_created_between.return_value = [_issue(1, "human")]
     mocker.patch("src.pipeline.save_issue_snapshots", return_value={1: 101})
     mocker.patch("src.pipeline.has_judgment", return_value=False)
     mocker.patch("src.pipeline.save_judgment", return_value=201)
@@ -75,7 +78,8 @@ def test_fetch_and_judge_logs_poll_run_summary(
             connection=connection,
             owner="scikit-learn",
             repo="scikit-learn",
-            date=dt.date(2026, 8, 4),
+            window_start=WINDOW_START,
+            window_end=WINDOW_END,
         )
 
     records = [r for r in caplog.records if getattr(r, "event", None) == "poll_run"]
@@ -83,7 +87,8 @@ def test_fetch_and_judge_logs_poll_run_summary(
     record = records[0]
     assert record.owner == "scikit-learn"
     assert record.repo == "scikit-learn"
-    assert record.date == "2026-08-04"
+    assert record.window_start == WINDOW_START.isoformat()
+    assert record.window_end == WINDOW_END.isoformat()
     assert record.fetched == 1
     assert record.judged == 1
     assert record.failure_count == 0
@@ -95,7 +100,7 @@ def test_fetch_and_judge_happy_path(
 ) -> None:
     non_bot = _issue(1, "human")
     bot = _issue(2, "scikit-learn-bot")
-    github_client.fetch_issues_created_on.return_value = [non_bot, bot]
+    github_client.fetch_issues_created_between.return_value = [non_bot, bot]
 
     save_snapshots = mocker.patch(
         "src.pipeline.save_issue_snapshots", return_value={1: 101, 2: 102}
@@ -109,7 +114,8 @@ def test_fetch_and_judge_happy_path(
         connection=connection,
         owner="scikit-learn",
         repo="scikit-learn",
-        date=dt.date(2026, 8, 4),
+        window_start=WINDOW_START,
+        window_end=WINDOW_END,
     )
 
     assert result.fetched == 2
@@ -129,15 +135,15 @@ def test_fetch_and_judge_happy_path(
     )
     save_judgment.assert_called_once_with(connection, 101, _judgment())
     github_client.fetch_labels.assert_called_once_with("scikit-learn", "scikit-learn")
-    github_client.fetch_issues_created_on.assert_called_once_with(
-        "scikit-learn", "scikit-learn", dt.date(2026, 8, 4), label=None
+    github_client.fetch_issues_created_between.assert_called_once_with(
+        "scikit-learn", "scikit-learn", WINDOW_START, WINDOW_END, label=None
     )
 
 
 def test_fetch_and_judge_passes_label_through_to_the_fetch(
     mocker: Any, github_client: Any, gemini_judge: Any, connection: Any
 ) -> None:
-    github_client.fetch_issues_created_on.return_value = []
+    github_client.fetch_issues_created_between.return_value = []
     mocker.patch("src.pipeline.save_issue_snapshots", return_value={})
 
     fetch_and_judge(
@@ -146,19 +152,20 @@ def test_fetch_and_judge_passes_label_through_to_the_fetch(
         connection=connection,
         owner="scikit-learn",
         repo="scikit-learn",
-        date=dt.date(2026, 8, 4),
+        window_start=WINDOW_START,
+        window_end=WINDOW_END,
         label="Needs Triage",
     )
 
-    github_client.fetch_issues_created_on.assert_called_once_with(
-        "scikit-learn", "scikit-learn", dt.date(2026, 8, 4), label="Needs Triage"
+    github_client.fetch_issues_created_between.assert_called_once_with(
+        "scikit-learn", "scikit-learn", WINDOW_START, WINDOW_END, label="Needs Triage"
     )
 
 
 def test_fetch_and_judge_passes_recent_examples_to_every_judge_call(
     mocker: Any, github_client: Any, gemini_judge: Any, connection: Any
 ) -> None:
-    github_client.fetch_issues_created_on.return_value = [_issue(1), _issue(2)]
+    github_client.fetch_issues_created_between.return_value = [_issue(1), _issue(2)]
     mocker.patch("src.pipeline.save_issue_snapshots", return_value={1: 101, 2: 102})
     mocker.patch("src.pipeline.has_judgment", return_value=False)
     mocker.patch("src.pipeline.save_judgment")
@@ -181,7 +188,8 @@ def test_fetch_and_judge_passes_recent_examples_to_every_judge_call(
         connection=connection,
         owner="scikit-learn",
         repo="scikit-learn",
-        date=dt.date(2026, 8, 4),
+        window_start=WINDOW_START,
+        window_end=WINDOW_END,
     )
 
     # Fetched once for the whole run, not once per issue.
@@ -195,7 +203,7 @@ def test_fetch_and_judge_skips_already_judged(
     mocker: Any, github_client: Any, gemini_judge: Any, connection: Any
 ) -> None:
     issue = _issue(1)
-    github_client.fetch_issues_created_on.return_value = [issue]
+    github_client.fetch_issues_created_between.return_value = [issue]
     mocker.patch("src.pipeline.save_issue_snapshots", return_value={1: 101})
     mocker.patch("src.pipeline.has_judgment", return_value=True)
     save_judgment = mocker.patch("src.pipeline.save_judgment")
@@ -206,7 +214,8 @@ def test_fetch_and_judge_skips_already_judged(
         connection=connection,
         owner="scikit-learn",
         repo="scikit-learn",
-        date=dt.date(2026, 8, 4),
+        window_start=WINDOW_START,
+        window_end=WINDOW_END,
     )
 
     assert result.judged == 0
@@ -218,7 +227,7 @@ def test_fetch_and_judge_skips_already_judged(
 def test_fetch_and_judge_continues_after_single_failure(
     mocker: Any, github_client: Any, gemini_judge: Any, connection: Any
 ) -> None:
-    github_client.fetch_issues_created_on.return_value = [_issue(1), _issue(2)]
+    github_client.fetch_issues_created_between.return_value = [_issue(1), _issue(2)]
     mocker.patch("src.pipeline.save_issue_snapshots", return_value={1: 101, 2: 102})
     mocker.patch("src.pipeline.has_judgment", return_value=False)
     save_judgment = mocker.patch("src.pipeline.save_judgment")
@@ -234,7 +243,8 @@ def test_fetch_and_judge_continues_after_single_failure(
         connection=connection,
         owner="scikit-learn",
         repo="scikit-learn",
-        date=dt.date(2026, 8, 4),
+        window_start=WINDOW_START,
+        window_end=WINDOW_END,
     )
 
     assert result.judged == 1
@@ -245,7 +255,7 @@ def test_fetch_and_judge_continues_after_single_failure(
 def test_fetch_and_judge_handles_unavailable_error(
     mocker: Any, github_client: Any, gemini_judge: Any, connection: Any
 ) -> None:
-    github_client.fetch_issues_created_on.return_value = [_issue(1)]
+    github_client.fetch_issues_created_between.return_value = [_issue(1)]
     mocker.patch("src.pipeline.save_issue_snapshots", return_value={1: 101})
     mocker.patch("src.pipeline.has_judgment", return_value=False)
     save_judgment = mocker.patch("src.pipeline.save_judgment")
@@ -258,7 +268,8 @@ def test_fetch_and_judge_handles_unavailable_error(
         connection=connection,
         owner="scikit-learn",
         repo="scikit-learn",
-        date=dt.date(2026, 8, 4),
+        window_start=WINDOW_START,
+        window_end=WINDOW_END,
     )
 
     assert result.judged == 0
