@@ -48,7 +48,9 @@ def format_digest_title(date: dt.date) -> str:
     return f"Triage digest — {date.isoformat()}"
 
 
-def format_digest_body(date: dt.date, issues: list[JudgedIssue]) -> str:
+def format_digest_body(
+    date: dt.date, issues: list[JudgedIssue], label: str | None = None
+) -> str:
     """Render a day's judged issues into a Markdown digest body.
 
     Grouped by priority (high, then medium, then low - only priorities
@@ -63,12 +65,19 @@ def format_digest_body(date: dt.date, issues: list[JudgedIssue]) -> str:
     this project on scikit-learn's side the moment the shadow repo goes
     public. Backtick-wrapped URLs and bare "#NNN" text do not trigger
     this.
+
+    `label` (e.g. "Needs Triage") is named explicitly in the empty/summary
+    messages when given - "no non-bot issues" previously implied no
+    activity at all, when the query is actually scoped to one label. A
+    real gap flagged during real operation (see LOG.md, daily-log.md).
     """
 
-    if not issues:
-        return f"No non-bot issues were created on {date.isoformat()}."
+    scope = f'issue(s) labelled "{label}"' if label else "non-bot issue(s)"
 
-    lines = [f"{len(issues)} issue(s) reviewed for {date.isoformat()}.", ""]
+    if not issues:
+        return f"No newly created {scope} were found for {date.isoformat()}."
+
+    lines = [f"{len(issues)} {scope} reviewed for {date.isoformat()}.", ""]
 
     ordered = sorted(issues, key=lambda item: _PRIORITY_ORDER[item.judgment.priority])
 
@@ -104,13 +113,16 @@ def build_digest(
     shadow_repo: str,
     window_start: dt.datetime,
     window_end: dt.datetime,
+    label: str | None = None,
 ) -> DigestContent:
     """Aggregate a window's judged issues into digest content.
 
     Persists the digest record and links each judgment to it, but does
     not publish anything to GitHub - see publish_digest. The title/body
     show window_end's Pacific calendar date - display only, not the
-    digest's identity (see LOG.md entry 53).
+    digest's identity (see LOG.md entry 53). `label` should be the same
+    label the pipeline fetched with (e.g. "Needs Triage"), so the body
+    accurately describes what was actually searched for.
     """
 
     display_date = window_end.astimezone(OPERATOR_TIMEZONE).date()
@@ -128,7 +140,7 @@ def build_digest(
     return DigestContent(
         digest_id=digest_id,
         title=format_digest_title(display_date),
-        body=format_digest_body(display_date, judged_issues),
+        body=format_digest_body(display_date, judged_issues, label),
         issue_count=len(judged_issues),
     )
 

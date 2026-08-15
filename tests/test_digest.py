@@ -43,9 +43,26 @@ def test_format_digest_title() -> None:
     assert format_digest_title(dt.date(2026, 8, 4)) == "Triage digest — 2026-08-04"
 
 
-def test_format_digest_body_handles_empty_day() -> None:
+def test_format_digest_body_handles_empty_day_without_label() -> None:
     body = format_digest_body(dt.date(2026, 8, 4), [])
-    assert "No non-bot issues were created on 2026-08-04" in body
+    assert "No newly created non-bot issue(s) were found for 2026-08-04" in body
+
+
+def test_format_digest_body_names_the_label_when_given() -> None:
+    """Regression test for a real gap found during real operation (see
+    LOG.md, daily-log.md): the message previously implied no activity at
+    all, when the query is actually scoped to one label."""
+
+    body = format_digest_body(dt.date(2026, 8, 4), [], label="Needs Triage")
+    assert 'No newly created issue(s) labelled "Needs Triage" were found' in body
+    assert "non-bot" not in body
+
+
+def test_format_digest_body_summary_line_names_the_label_when_given() -> None:
+    body = format_digest_body(
+        dt.date(2026, 8, 4), [_judged_issue(1)], label="Needs Triage"
+    )
+    assert '1 issue(s) labelled "Needs Triage" reviewed for 2026-08-04' in body
 
 
 def test_format_digest_body_groups_by_priority_present_only() -> None:
@@ -103,11 +120,13 @@ def test_build_digest_aggregates_and_persists(mocker: Any, connection: Any) -> N
         shadow_repo="issue-triaging-agent-digests",
         window_start=window_start,
         window_end=window_end,
+        label="Needs Triage",
     )
 
     assert content.digest_id == 7
     assert content.issue_count == 1
     assert content.title == "Triage digest — 2026-08-04"
+    assert 'labelled "Needs Triage"' in content.body
     create_digest.assert_called_once_with(
         connection, "virchan", "issue-triaging-agent-digests", window_start, window_end
     )

@@ -89,6 +89,7 @@ def run_daily_cycle(
         shadow_repo=shadow_repo,
         window_start=window_start,
         window_end=window_end,
+        label=label,
     )
 
     published = publish_digest(

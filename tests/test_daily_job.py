@@ -167,6 +167,7 @@ def test_run_daily_cycle_uses_previous_digest_window_end_as_start(
     assert fetch_kwargs["window_start"] == previous_window_end
     assert build_kwargs["window_start"] == previous_window_end
     assert fetch_kwargs["window_end"] == build_kwargs["window_end"]
+    assert build_kwargs["label"] == "Needs Triage"
 
 
 def test_run_daily_cycle_bootstraps_window_when_no_previous_digest(
