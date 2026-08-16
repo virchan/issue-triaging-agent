@@ -11,7 +11,7 @@ from src.db import get_latest_digest_window_end, get_unreviewed_digests
 from src.digest import DigestContent, build_digest, publish_digest
 from src.gemini_client import GeminiJudge
 from src.github_client import GitHubClient
-from src.pipeline import PipelineResult, fetch_and_judge
+from src.pipeline import PipelineResult, fetch_and_judge, fetch_and_judge_backlog
 
 # How far back the very first poll ever looks, when there's no previous
 # digest's window_end to chain from. Matches the daily cadence; only used
@@ -29,6 +29,9 @@ class DailyCycleResult:
     digest: DigestContent
     published: tuple[int, str] | None
     reviews: list[CaptureResult] = field(default_factory=list)
+    backlog: PipelineResult | None = None
+    """Set only when the window found nothing new and a backlog catch-up
+    ran (Phase 8 idea A - see LOG.md)."""
 
 
 def run_daily_cycle(
@@ -58,6 +61,12 @@ def run_daily_cycle(
     GitHub issue isn't closed yet, so calling it here is always safe,
     not just when a digest is known to be ready.
 
+    If the window finds nothing new at all, a backlog catch-up runs
+    instead (Phase 8 idea A - see LOG.md): older, already-open issues
+    carrying `label` that have never been judged, so the system doesn't
+    stay permanently blind to a pre-existing backlog. Requires a real
+    `label` - there's no well-defined "backlog" without one.
+
     github_client must be read-only (scikit-learn); shadow_client must
     be authenticated with SHADOW_REPO_TOKEN (shadow repo writes).
     """
@@ -81,6 +90,18 @@ def run_daily_cycle(
         label=label,
     )
 
+    backlog_result: PipelineResult | None = None
+    backlog_issue_numbers: list[int] = []
+    if pipeline_result.fetched == 0 and label is not None:
+        backlog_result, backlog_issue_numbers = fetch_and_judge_backlog(
+            github_client=github_client,
+            gemini_judge=gemini_judge,
+            connection=connection,
+            owner=source_owner,
+            repo=source_repo,
+            label=label,
+        )
+
     digest = build_digest(
         connection,
         source_owner=source_owner,
@@ -90,6 +111,7 @@ def run_daily_cycle(
         window_start=window_start,
         window_end=window_end,
         label=label,
+        backlog_issue_numbers=backlog_issue_numbers,
     )
 
     published = publish_digest(
@@ -118,4 +140,5 @@ def run_daily_cycle(
         digest=digest,
         published=published,
         reviews=reviews,
+        backlog=backlog_result,
     )

@@ -98,6 +98,41 @@ def test_format_digest_body_never_creates_a_clickable_cross_reference() -> None:
     assert "#34649" in body
 
 
+def test_format_digest_body_renders_backlog_only_section() -> None:
+    """Phase 8 idea A (see LOG.md/daily-log.md): when nothing new was
+    found, older backlog issues get reviewed and shown instead - as a
+    clearly distinct section, not silently merged with "new"."""
+
+    body = format_digest_body(
+        dt.date(2026, 8, 15),
+        [],
+        label="Needs Triage",
+        backlog_issues=[_judged_issue(1)],
+    )
+
+    assert 'No newly created issue(s) labelled "Needs Triage" were found' in body
+    assert "1 older open issue(s) with that label were reviewed instead" in body
+    assert "#1" in body
+
+
+def test_format_digest_body_renders_combined_new_and_backlog_sections() -> None:
+    body = format_digest_body(
+        dt.date(2026, 8, 15),
+        [_judged_issue(1)],
+        label="Needs Triage",
+        backlog_issues=[_judged_issue(2)],
+    )
+
+    assert "#1" in body
+    assert "#2" in body
+    assert "1 older open issue(s) were reviewed too" in body
+
+
+def test_format_digest_body_omits_backlog_section_when_none_given() -> None:
+    body = format_digest_body(dt.date(2026, 8, 4), [_judged_issue(1)])
+    assert "older open issue(s)" not in body
+
+
 @pytest.fixture
 def connection(mocker: Any) -> Any:
     return mocker.Mock()
@@ -131,6 +166,38 @@ def test_build_digest_aggregates_and_persists(mocker: Any, connection: Any) -> N
         connection, "virchan", "issue-triaging-agent-digests", window_start, window_end
     )
     link.assert_called_once_with(connection, 7, [501])
+
+
+def test_build_digest_includes_backlog_issues(mocker: Any, connection: Any) -> None:
+    window_start = dt.datetime(2026, 8, 14, 0, 0, 0, tzinfo=dt.UTC)
+    window_end = dt.datetime(2026, 8, 15, 0, 0, 0, tzinfo=dt.UTC)
+
+    mocker.patch("src.digest.get_judged_issues_in_window", return_value=[])
+    backlog_issues = [_judged_issue(99, judgment_id=901)]
+    get_by_numbers = mocker.patch(
+        "src.digest.get_judged_issues_by_numbers", return_value=backlog_issues
+    )
+    mocker.patch("src.digest.create_digest", return_value=8)
+    link = mocker.patch("src.digest.link_judgments_to_digest")
+
+    content = build_digest(
+        connection,
+        source_owner="scikit-learn",
+        source_repo="scikit-learn",
+        shadow_owner="virchan",
+        shadow_repo="issue-triaging-agent-digests",
+        window_start=window_start,
+        window_end=window_end,
+        label="Needs Triage",
+        backlog_issue_numbers=[99],
+    )
+
+    assert content.issue_count == 1
+    assert "#99" in content.body
+    get_by_numbers.assert_called_once_with(
+        connection, "scikit-learn", "scikit-learn", [99]
+    )
+    link.assert_called_once_with(connection, 8, [901])
 
 
 def test_publish_digest_skips_if_already_published(

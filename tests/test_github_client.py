@@ -159,6 +159,84 @@ def test_fetch_issues_created_between_wraps_malformed_response(mocker: Any) -> N
         )
 
 
+def test_fetch_open_issues_with_label_parses_response(mocker: Any) -> None:
+    get = mocker.patch.object(
+        httpx.Client,
+        "get",
+        return_value=_mock_response(mocker, [_raw_issue(34648)]),
+    )
+
+    client = GitHubClient()
+    issues = client.fetch_open_issues_with_label(
+        "scikit-learn", "scikit-learn", "Needs Triage"
+    )
+
+    assert len(issues) == 1
+    assert issues[0].number == 34648
+    get.assert_called_once()
+
+
+def test_fetch_open_issues_with_label_builds_expected_query(mocker: Any) -> None:
+    get = mocker.patch.object(
+        httpx.Client, "get", return_value=_mock_response(mocker, [])
+    )
+
+    client = GitHubClient()
+    client.fetch_open_issues_with_label("scikit-learn", "scikit-learn", "Needs Triage")
+
+    _, kwargs = get.call_args
+    assert kwargs["params"]["q"] == (
+        'repo:scikit-learn/scikit-learn is:issue is:open label:"Needs Triage"'
+    )
+    assert kwargs["params"]["sort"] == "created"
+    assert kwargs["params"]["order"] == "asc"
+
+
+def test_fetch_open_issues_with_label_does_not_paginate(mocker: Any) -> None:
+    """Deliberately single-page - see the method's own docstring."""
+
+    get = mocker.patch.object(
+        httpx.Client,
+        "get",
+        return_value=_mock_response(mocker, [_raw_issue(i) for i in range(100)]),
+    )
+
+    client = GitHubClient()
+    issues = client.fetch_open_issues_with_label(
+        "scikit-learn", "scikit-learn", "Needs Triage"
+    )
+
+    assert len(issues) == 100
+    get.assert_called_once()
+
+
+def test_fetch_open_issues_with_label_wraps_http_errors(mocker: Any) -> None:
+    response = mocker.Mock()
+    response.raise_for_status.side_effect = httpx.HTTPStatusError(
+        "boom", request=mocker.Mock(), response=mocker.Mock()
+    )
+    mocker.patch.object(httpx.Client, "get", return_value=response)
+
+    client = GitHubClient()
+    with pytest.raises(GitHubClientError):
+        client.fetch_open_issues_with_label(
+            "scikit-learn", "scikit-learn", "Needs Triage"
+        )
+
+
+def test_fetch_open_issues_with_label_wraps_malformed_response(mocker: Any) -> None:
+    response = mocker.Mock()
+    response.raise_for_status.return_value = None
+    response.json.return_value = {"items": [{"title": "missing the number field"}]}
+    mocker.patch.object(httpx.Client, "get", return_value=response)
+
+    client = GitHubClient()
+    with pytest.raises(GitHubClientError):
+        client.fetch_open_issues_with_label(
+            "scikit-learn", "scikit-learn", "Needs Triage"
+        )
+
+
 def test_fetch_labels_returns_names(mocker: Any) -> None:
     response = mocker.Mock()
     response.raise_for_status.return_value = None

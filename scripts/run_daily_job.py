@@ -61,6 +61,8 @@ def main() -> None:
         raise
 
     print(f"Pipeline: {result.pipeline}")
+    if result.backlog is not None:
+        print(f"Backlog catch-up: {result.backlog}")
     print(
         f"Digest: id={result.digest.digest_id}, issue_count={result.digest.issue_count}"
     )

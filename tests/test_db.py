@@ -8,6 +8,8 @@ import pytest
 from src.db import (
     connect,
     get_all_reviewed_judgments,
+    get_judged_github_numbers,
+    get_judged_issues_by_numbers,
     get_latest_digest_window_end,
     get_recent_reviewed_judgments,
     get_unreviewed_digests,
@@ -208,6 +210,58 @@ def test_get_latest_digest_window_end_returns_none_when_no_digests(
     cursor.fetchone.return_value = None
 
     assert get_latest_digest_window_end(connection) is None
+
+
+def test_get_judged_github_numbers_returns_a_set(mocker: Any) -> None:
+    connection, cursor = _mock_connection(mocker)
+    cursor.fetchall.return_value = [(34649,), (34650,), (34649,)]
+
+    result = get_judged_github_numbers(connection, "scikit-learn", "scikit-learn")
+
+    assert result == {34649, 34650}
+
+
+def test_get_judged_issues_by_numbers_returns_empty_without_querying(
+    mocker: Any,
+) -> None:
+    connection, cursor = _mock_connection(mocker)
+
+    result = get_judged_issues_by_numbers(
+        connection, "scikit-learn", "scikit-learn", []
+    )
+
+    assert result == []
+    cursor.execute.assert_not_called()
+
+
+def test_get_judged_issues_by_numbers_maps_rows(mocker: Any) -> None:
+    connection, cursor = _mock_connection(mocker)
+    cursor.fetchall.return_value = [
+        (
+            1,
+            501,
+            34648,
+            "Title A",
+            "https://github.com/scikit-learn/scikit-learn/issues/34648",
+            "Documentation",
+            False,
+            "summary",
+            "low",
+            "rationale",
+            0.95,
+        ),
+    ]
+
+    result = get_judged_issues_by_numbers(
+        connection, "scikit-learn", "scikit-learn", [34648]
+    )
+
+    assert len(result) == 1
+    assert result[0].github_number == 34648
+    assert result[0].judgment.suggested_label == "Documentation"
+    sql, params = cursor.execute.call_args.args
+    assert "i.github_number = ANY(%s)" in sql
+    assert params == ("scikit-learn", "scikit-learn", [34648])
 
 
 def test_connect_reads_database_url_from_environment(

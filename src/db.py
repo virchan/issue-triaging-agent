@@ -183,6 +183,33 @@ class JudgedIssue:
     judgment: IssueJudgment
 
 
+def _row_to_judged_issue(row: tuple[Any, ...]) -> JudgedIssue:
+    return JudgedIssue(
+        issue_id=row[0],
+        judgment_id=row[1],
+        github_number=row[2],
+        title=row[3],
+        html_url=row[4],
+        judgment=IssueJudgment(
+            suggested_label=row[5],
+            is_spam=row[6],
+            summary=row[7],
+            priority=row[8],
+            rationale=row[9],
+            confidence=row[10],
+        ),
+    )
+
+
+_JUDGED_ISSUE_SELECT = """
+    SELECT i.id, j.id, i.github_number, i.title, i.html_url,
+           j.suggested_label, j.is_spam, j.summary, j.priority,
+           j.rationale, j.confidence
+    FROM issues i
+    JOIN judgments j ON j.issue_id = i.id
+"""
+
+
 def get_judged_issues_in_window(
     connection: psycopg.Connection[Any],
     repo_owner: str,
@@ -195,12 +222,8 @@ def get_judged_issues_in_window(
 
     with connection.cursor() as cursor:
         cursor.execute(
-            """
-            SELECT i.id, j.id, i.github_number, i.title, i.html_url,
-                   j.suggested_label, j.is_spam, j.summary, j.priority,
-                   j.rationale, j.confidence
-            FROM issues i
-            JOIN judgments j ON j.issue_id = i.id
+            _JUDGED_ISSUE_SELECT
+            + """
             WHERE i.repo_owner = %s AND i.repo_name = %s
               AND i.github_created_at >= %s AND i.github_created_at < %s
               AND i.is_bot = FALSE
@@ -210,24 +233,63 @@ def get_judged_issues_in_window(
         )
         rows = cursor.fetchall()
 
-    return [
-        JudgedIssue(
-            issue_id=row[0],
-            judgment_id=row[1],
-            github_number=row[2],
-            title=row[3],
-            html_url=row[4],
-            judgment=IssueJudgment(
-                suggested_label=row[5],
-                is_spam=row[6],
-                summary=row[7],
-                priority=row[8],
-                rationale=row[9],
-                confidence=row[10],
-            ),
+    return [_row_to_judged_issue(row) for row in rows]
+
+
+def get_judged_issues_by_numbers(
+    connection: psycopg.Connection[Any],
+    repo_owner: str,
+    repo_name: str,
+    github_numbers: list[int],
+) -> list[JudgedIssue]:
+    """Fetch judged issues by explicit github_number, regardless of when
+    they were created.
+
+    Used for the digest's backlog section (see src.pipeline.fetch_and_judge_backlog,
+    Phase 8 idea A) - backlog issues are older than any time window by
+    definition, so get_judged_issues_in_window can never find them.
+    """
+
+    if not github_numbers:
+        return []
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            _JUDGED_ISSUE_SELECT
+            + """
+            WHERE i.repo_owner = %s AND i.repo_name = %s
+              AND i.github_number = ANY(%s)
+            ORDER BY i.github_number
+            """,
+            (repo_owner, repo_name, github_numbers),
         )
-        for row in rows
-    ]
+        rows = cursor.fetchall()
+
+    return [_row_to_judged_issue(row) for row in rows]
+
+
+def get_judged_github_numbers(
+    connection: psycopg.Connection[Any],
+    repo_owner: str,
+    repo_name: str,
+) -> set[int]:
+    """All github issue numbers in this repo that already have a judgment.
+
+    Used to filter backlog candidates (see src.pipeline.fetch_and_judge_backlog)
+    so a backlog catch-up never re-judges an issue already covered.
+    """
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT i.github_number
+            FROM issues i
+            JOIN judgments j ON j.issue_id = i.id
+            WHERE i.repo_owner = %s AND i.repo_name = %s
+            """,
+            (repo_owner, repo_name),
+        )
+        return {row[0] for row in cursor.fetchall()}
 
 
 def create_digest(

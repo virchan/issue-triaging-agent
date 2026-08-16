@@ -11,6 +11,8 @@ from src.db import UnreviewedDigest
 from src.digest import DigestContent
 from src.pipeline import PipelineResult
 
+_EMPTY = PipelineResult(fetched=0, bot_excluded=0, judged=0, already_judged=0)
+
 
 @pytest.fixture
 def clients_and_connection(mocker: Any) -> tuple[Any, Any, Any, Any]:
@@ -101,6 +103,13 @@ def test_run_daily_cycle_with_no_unreviewed_digests(
             fetched=0, bot_excluded=0, judged=0, already_judged=0
         ),
     )
+    mocker.patch(
+        "src.daily_job.fetch_and_judge_backlog",
+        return_value=(
+            PipelineResult(fetched=0, bot_excluded=0, judged=0, already_judged=0),
+            [],
+        ),
+    )
     digest = DigestContent(digest_id=1, title="t", body="b", issue_count=0)
     mocker.patch("src.daily_job.build_digest", return_value=digest)
     mocker.patch("src.daily_job.publish_digest", return_value=None)
@@ -143,6 +152,13 @@ def test_run_daily_cycle_uses_previous_digest_window_end_as_start(
             fetched=0, bot_excluded=0, judged=0, already_judged=0
         ),
     )
+    mocker.patch(
+        "src.daily_job.fetch_and_judge_backlog",
+        return_value=(
+            PipelineResult(fetched=0, bot_excluded=0, judged=0, already_judged=0),
+            [],
+        ),
+    )
     build_digest_mock = mocker.patch(
         "src.daily_job.build_digest",
         return_value=DigestContent(digest_id=1, title="t", body="b", issue_count=0),
@@ -183,6 +199,13 @@ def test_run_daily_cycle_bootstraps_window_when_no_previous_digest(
         ),
     )
     mocker.patch(
+        "src.daily_job.fetch_and_judge_backlog",
+        return_value=(
+            PipelineResult(fetched=0, bot_excluded=0, judged=0, already_judged=0),
+            [],
+        ),
+    )
+    mocker.patch(
         "src.daily_job.build_digest",
         return_value=DigestContent(digest_id=1, title="t", body="b", issue_count=0),
     )
@@ -203,3 +226,119 @@ def test_run_daily_cycle_bootstraps_window_when_no_previous_digest(
 
     fetch_kwargs = fetch_and_judge_mock.call_args.kwargs
     assert fetch_kwargs["window_end"] - fetch_kwargs["window_start"] == BOOTSTRAP_WINDOW
+
+
+# --- Backlog catch-up orchestration (Phase 8 idea A - see LOG.md/daily-log.md) ---
+
+
+def test_run_daily_cycle_does_not_trigger_backlog_when_new_issues_found(
+    mocker: Any, clients_and_connection: tuple[Any, Any, Any, Any]
+) -> None:
+    github_client, shadow_client, gemini_judge, connection = clients_and_connection
+
+    mocker.patch("src.daily_job.get_latest_digest_window_end", return_value=None)
+    mocker.patch(
+        "src.daily_job.fetch_and_judge",
+        return_value=PipelineResult(
+            fetched=1, bot_excluded=0, judged=1, already_judged=0
+        ),
+    )
+    backlog_mock = mocker.patch("src.daily_job.fetch_and_judge_backlog")
+    mocker.patch(
+        "src.daily_job.build_digest",
+        return_value=DigestContent(digest_id=1, title="t", body="b", issue_count=1),
+    )
+    mocker.patch("src.daily_job.publish_digest", return_value=None)
+    mocker.patch("src.daily_job.get_unreviewed_digests", return_value=[])
+
+    result = run_daily_cycle(
+        github_client=github_client,
+        shadow_client=shadow_client,
+        gemini_judge=gemini_judge,
+        connection=connection,
+        source_owner="scikit-learn",
+        source_repo="scikit-learn",
+        shadow_owner="virchan",
+        shadow_repo="issue-triaging-agent-digests",
+        label="Needs Triage",
+    )
+
+    backlog_mock.assert_not_called()
+    assert result.backlog is None
+
+
+def test_run_daily_cycle_triggers_backlog_when_nothing_new_found(
+    mocker: Any, clients_and_connection: tuple[Any, Any, Any, Any]
+) -> None:
+    github_client, shadow_client, gemini_judge, connection = clients_and_connection
+
+    mocker.patch("src.daily_job.get_latest_digest_window_end", return_value=None)
+    mocker.patch("src.daily_job.fetch_and_judge", return_value=_EMPTY)
+    backlog_result = PipelineResult(
+        fetched=2, bot_excluded=0, judged=2, already_judged=0
+    )
+    backlog_mock = mocker.patch(
+        "src.daily_job.fetch_and_judge_backlog",
+        return_value=(backlog_result, [42, 43]),
+    )
+    build_digest_mock = mocker.patch(
+        "src.daily_job.build_digest",
+        return_value=DigestContent(digest_id=1, title="t", body="b", issue_count=2),
+    )
+    mocker.patch("src.daily_job.publish_digest", return_value=None)
+    mocker.patch("src.daily_job.get_unreviewed_digests", return_value=[])
+
+    result = run_daily_cycle(
+        github_client=github_client,
+        shadow_client=shadow_client,
+        gemini_judge=gemini_judge,
+        connection=connection,
+        source_owner="scikit-learn",
+        source_repo="scikit-learn",
+        shadow_owner="virchan",
+        shadow_repo="issue-triaging-agent-digests",
+        label="Needs Triage",
+    )
+
+    backlog_mock.assert_called_once_with(
+        github_client=github_client,
+        gemini_judge=gemini_judge,
+        connection=connection,
+        owner="scikit-learn",
+        repo="scikit-learn",
+        label="Needs Triage",
+    )
+    assert result.backlog is backlog_result
+    build_kwargs = build_digest_mock.call_args.kwargs
+    assert build_kwargs["backlog_issue_numbers"] == [42, 43]
+
+
+def test_run_daily_cycle_does_not_trigger_backlog_without_a_label(
+    mocker: Any, clients_and_connection: tuple[Any, Any, Any, Any]
+) -> None:
+    github_client, shadow_client, gemini_judge, connection = clients_and_connection
+
+    mocker.patch("src.daily_job.get_latest_digest_window_end", return_value=None)
+    mocker.patch("src.daily_job.fetch_and_judge", return_value=_EMPTY)
+    backlog_mock = mocker.patch("src.daily_job.fetch_and_judge_backlog")
+    mocker.patch(
+        "src.daily_job.build_digest",
+        return_value=DigestContent(digest_id=1, title="t", body="b", issue_count=0),
+    )
+    mocker.patch("src.daily_job.publish_digest", return_value=None)
+    mocker.patch("src.daily_job.get_unreviewed_digests", return_value=[])
+
+    result = run_daily_cycle(
+        github_client=github_client,
+        shadow_client=shadow_client,
+        gemini_judge=gemini_judge,
+        connection=connection,
+        source_owner="scikit-learn",
+        source_repo="scikit-learn",
+        shadow_owner="virchan",
+        shadow_repo="issue-triaging-agent-digests",
+        label=None,
+    )
+
+    backlog_mock.assert_not_called()
+    assert result.backlog is None

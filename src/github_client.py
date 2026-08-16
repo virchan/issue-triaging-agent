@@ -120,6 +120,46 @@ class GitHubClient:
 
         return issues
 
+    def fetch_open_issues_with_label(
+        self,
+        owner: str,
+        repo: str,
+        label: str,
+        per_page: int = 100,
+    ) -> list[GitHubIssue]:
+        """Fetch currently-open issues carrying `label`, oldest-created first.
+
+        Used for backlog catch-up (see src.pipeline.fetch_and_judge_backlog,
+        Phase 8 idea A) - when a poll finds nothing new, this looks for
+        older open issues we've never judged. Single page (default 100):
+        enough to find a small handful of not-yet-judged candidates, not
+        built to page through an entire large backlog.
+        """
+
+        query = f'repo:{owner}/{repo} is:issue is:open label:"{label}"'
+
+        try:
+            response = self._client.get(
+                "/search/issues",
+                params={
+                    "q": query,
+                    "sort": "created",
+                    "order": "asc",
+                    "per_page": per_page,
+                },
+            )
+            response.raise_for_status()
+            items = response.json().get("items", [])
+            return [_parse_issue(item) for item in items]
+        except httpx.HTTPError as error:
+            raise GitHubClientError(
+                "GitHub could not complete the issue search."
+            ) from error
+        except (KeyError, TypeError, ValueError) as error:
+            raise GitHubClientError(
+                "GitHub returned an unexpected issue search response."
+            ) from error
+
     def fetch_labels(self, owner: str, repo: str) -> list[str]:
         """Fetch the repository's real, currently valid label names."""
 
