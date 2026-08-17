@@ -280,14 +280,13 @@ def test_fetch_and_judge_handles_unavailable_error(
 # --- fetch_and_judge_backlog (Phase 8 idea A - see LOG.md/daily-log.md) ---
 
 
-def test_fetch_and_judge_backlog_judges_unjudged_candidates(
+def test_fetch_and_judge_backlog_fetches_newest_first_and_judges_candidates(
     mocker: Any, github_client: Any, gemini_judge: Any, connection: Any
 ) -> None:
     github_client.fetch_open_issues_with_label.return_value = [
         _issue(10, "human"),
         _issue(11, "human"),
     ]
-    mocker.patch("src.pipeline.get_judged_github_numbers", return_value=set())
     mocker.patch("src.pipeline.save_issue_snapshots", return_value={10: 110, 11: 111})
     mocker.patch("src.pipeline.has_judgment", return_value=False)
     save_judgment = mocker.patch("src.pipeline.save_judgment")
@@ -309,16 +308,21 @@ def test_fetch_and_judge_backlog_judges_unjudged_candidates(
     )
 
 
-def test_fetch_and_judge_backlog_skips_already_judged_candidates(
+def test_fetch_and_judge_backlog_reuses_already_judged_candidates(
     mocker: Any, github_client: Any, gemini_judge: Any, connection: Any
 ) -> None:
+    """Regression test for LOG.md entry 58: a candidate already judged in
+    a prior run is still included (reused, not excluded) - it must not
+    silently vanish from the digest just because it was judged once."""
+
     github_client.fetch_open_issues_with_label.return_value = [
         _issue(10, "human"),
         _issue(11, "human"),
     ]
-    mocker.patch("src.pipeline.get_judged_github_numbers", return_value={10})
-    mocker.patch("src.pipeline.save_issue_snapshots", return_value={11: 111})
-    mocker.patch("src.pipeline.has_judgment", return_value=False)
+    mocker.patch("src.pipeline.save_issue_snapshots", return_value={10: 110, 11: 111})
+    mocker.patch(
+        "src.pipeline.has_judgment", side_effect=lambda conn, issue_id: issue_id == 110
+    )
     mocker.patch("src.pipeline.save_judgment")
 
     _, judged_numbers = fetch_and_judge_backlog(
@@ -330,7 +334,7 @@ def test_fetch_and_judge_backlog_skips_already_judged_candidates(
         label="Needs Triage",
     )
 
-    assert judged_numbers == [11]
+    assert set(judged_numbers) == {10, 11}
     assert gemini_judge.judge.call_count == 1
 
 
@@ -340,7 +344,6 @@ def test_fetch_and_judge_backlog_respects_the_cap(
     github_client.fetch_open_issues_with_label.return_value = [
         _issue(n, "human") for n in range(10, 20)
     ]
-    mocker.patch("src.pipeline.get_judged_github_numbers", return_value=set())
     mocker.patch(
         "src.pipeline.save_issue_snapshots",
         return_value={n: 100 + n for n in range(10, 20)},
@@ -368,7 +371,6 @@ def test_fetch_and_judge_backlog_excludes_bots(
     non_bot = _issue(10, "human")
     bot = _issue(11, "scikit-learn-bot")
     github_client.fetch_open_issues_with_label.return_value = [non_bot, bot]
-    mocker.patch("src.pipeline.get_judged_github_numbers", return_value=set())
     save_snapshots = mocker.patch(
         "src.pipeline.save_issue_snapshots", return_value={10: 110, 11: 111}
     )
@@ -398,7 +400,6 @@ def test_fetch_and_judge_backlog_returns_only_successful_judgments(
         _issue(10, "human"),
         _issue(11, "human"),
     ]
-    mocker.patch("src.pipeline.get_judged_github_numbers", return_value=set())
     mocker.patch("src.pipeline.save_issue_snapshots", return_value={10: 110, 11: 111})
     mocker.patch("src.pipeline.has_judgment", return_value=False)
     mocker.patch("src.pipeline.save_judgment")
@@ -415,3 +416,31 @@ def test_fetch_and_judge_backlog_returns_only_successful_judgments(
 
     assert judged_numbers == [11]
     assert result.failures == [(10, "bad")]
+
+
+def test_fetch_and_judge_respects_an_optional_cap(
+    mocker: Any, github_client: Any, gemini_judge: Any, connection: Any
+) -> None:
+    github_client.fetch_issues_created_between.return_value = [
+        _issue(n, "human") for n in range(1, 6)
+    ]
+    mocker.patch(
+        "src.pipeline.save_issue_snapshots",
+        return_value={n: 100 + n for n in range(1, 6)},
+    )
+    mocker.patch("src.pipeline.has_judgment", return_value=False)
+    mocker.patch("src.pipeline.save_judgment")
+
+    result = fetch_and_judge(
+        github_client=github_client,
+        gemini_judge=gemini_judge,
+        connection=connection,
+        owner="scikit-learn",
+        repo="scikit-learn",
+        window_start=WINDOW_START,
+        window_end=WINDOW_END,
+        cap=2,
+    )
+
+    assert result.judged == 2
+    assert gemini_judge.judge.call_count == 2

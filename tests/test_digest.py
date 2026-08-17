@@ -28,6 +28,8 @@ def _judged_issue(
         github_number=number,
         title=f"Issue {number}",
         html_url=f"https://github.com/scikit-learn/scikit-learn/issues/{number}",
+        repo_owner="scikit-learn",
+        repo_name="scikit-learn",
         judgment=IssueJudgment(
             suggested_label="Bug",
             is_spam=is_spam,
@@ -88,14 +90,17 @@ def test_format_digest_body_never_creates_a_clickable_cross_reference() -> None:
 
     A markdown link with the raw scikit-learn URL as its target creates a
     visible GitHub cross-reference on the target issue - confirmed
-    empirically. This must never reappear.
+    empirically. This must never reappear. Nor may a bare "#NNN" or
+    "owner/repo#NNN" - see LOG.md entry 58 for why the reference format
+    changed to a backtick-wrapped "owner/repo/NNN".
     """
 
     body = format_digest_body(dt.date(2026, 8, 4), [_judged_issue(34649)])
 
     assert "](https://github.com/scikit-learn" not in body
     assert "`https://github.com/scikit-learn/scikit-learn/issues/34649`" in body
-    assert "#34649" in body
+    assert "`scikit-learn/scikit-learn/34649`" in body
+    assert "scikit-learn#34649" not in body
 
 
 def test_format_digest_body_renders_backlog_only_section() -> None:
@@ -112,7 +117,7 @@ def test_format_digest_body_renders_backlog_only_section() -> None:
 
     assert 'No newly created issue(s) labelled "Needs Triage" were found' in body
     assert "1 older open issue(s) that still need triaging" in body
-    assert "#1" in body
+    assert "`scikit-learn/scikit-learn/1`" in body
 
 
 def test_format_digest_body_renders_combined_new_and_backlog_sections() -> None:
@@ -123,14 +128,39 @@ def test_format_digest_body_renders_combined_new_and_backlog_sections() -> None:
         backlog_issues=[_judged_issue(2)],
     )
 
-    assert "#1" in body
-    assert "#2" in body
+    assert "`scikit-learn/scikit-learn/1`" in body
+    assert "`scikit-learn/scikit-learn/2`" in body
     assert "1 older open issue(s) that still need triaging too" in body
 
 
 def test_format_digest_body_omits_backlog_section_when_none_given() -> None:
     body = format_digest_body(dt.date(2026, 8, 4), [_judged_issue(1)])
     assert "older open issue(s)" not in body
+
+
+def test_format_digest_body_omits_wip_reminder_by_default() -> None:
+    body = format_digest_body(dt.date(2026, 8, 4), [_judged_issue(1)])
+    assert "Still working on" not in body
+
+
+def test_format_digest_body_includes_wip_reminder_when_given() -> None:
+    """Phase 8 idea A follow-up (see LOG.md entry 58): a still-open prior
+    digest gets a reminder line pointing back at it, using a real
+    clickable "#NNN" - unlike scikit-learn references, this points at
+    another issue in the *same* repo, where autolinking is desired."""
+
+    body = format_digest_body(
+        dt.date(2026, 8, 17), [_judged_issue(1)], wip_digest_issue_number=12
+    )
+
+    assert "Still working on #12?" in body
+
+
+def test_format_digest_body_includes_wip_reminder_even_when_fully_empty() -> None:
+    body = format_digest_body(dt.date(2026, 8, 17), [], wip_digest_issue_number=12)
+
+    assert "Still working on #12?" in body
+    assert "No newly created" in body
 
 
 @pytest.fixture
@@ -217,11 +247,34 @@ def test_build_digest_includes_backlog_issues(mocker: Any, connection: Any) -> N
     )
 
     assert content.issue_count == 1
-    assert "#99" in content.body
+    assert "`scikit-learn/scikit-learn/99`" in content.body
     get_by_numbers.assert_called_once_with(
         connection, "scikit-learn", "scikit-learn", [99]
     )
     link.assert_called_once_with(connection, 8, [901])
+
+
+def test_build_digest_passes_through_wip_reminder(mocker: Any, connection: Any) -> None:
+    window_start = dt.datetime(2026, 8, 16, 12, 0, 0, tzinfo=dt.UTC)
+    window_end = dt.datetime(2026, 8, 17, 0, 0, 0, tzinfo=dt.UTC)
+
+    mocker.patch("src.digest.get_judged_issues_in_window", return_value=[])
+    mocker.patch("src.digest.create_digest", return_value=9)
+    mocker.patch("src.digest.link_judgments_to_digest")
+
+    content = build_digest(
+        connection,
+        source_owner="scikit-learn",
+        source_repo="scikit-learn",
+        shadow_owner="virchan",
+        shadow_repo="issue-triaging-agent-digests",
+        window_start=window_start,
+        window_end=window_end,
+        label="Needs Triage",
+        wip_digest_issue_number=12,
+    )
+
+    assert "Still working on #12?" in content.body
 
 
 def test_publish_digest_skips_if_already_published(

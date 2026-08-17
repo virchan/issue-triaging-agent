@@ -54,14 +54,16 @@ def _render_issue_section(issues: list[JudgedIssue]) -> list[str]:
     """Render one priority-grouped block of issues - the shared per-issue
     formatting used for both the "new" and "backlog" sections.
 
-    Issue references are NOT rendered as clickable markdown links to the
-    scikit-learn URL, and the URL that is shown is wrapped in backticks
-    (inline code). A real markdown link with the raw URL as its target
-    creates a visible GitHub cross-reference on the target scikit-learn
-    issue - confirmed empirically (see LOG.md) - which would surface
-    this project on scikit-learn's side the moment the shadow repo goes
-    public. Backtick-wrapped URLs and bare "#NNN" text do not trigger
-    this.
+    Issue references use the full `owner/repo/number` form, backtick-wrapped
+    (inline code) - not a bare "#NNN", and not "owner/repo#NNN" either.
+    Two reasons (see LOG.md entries 55, 58): a real markdown link (or
+    GitHub's own owner/repo#NNN autolink syntax) with the scikit-learn
+    issue as its target creates a visible GitHub cross-reference on that
+    issue - confirmed empirically; and as this repo's own issue count
+    grows, a bare "#NNN" would eventually collide with one of *our own*
+    internal issue numbers, silently autolinking to the wrong issue. The
+    "/" separator (not "#") avoids GitHub's reference syntax entirely,
+    and the backticks are a second, independent guard against both.
     """
 
     lines: list[str] = []
@@ -76,7 +78,8 @@ def _render_issue_section(issues: list[JudgedIssue]) -> list[str]:
             lines.append("")
 
         spam_flag = " ⚠️ possible spam" if judgment.is_spam else ""
-        lines.append(f"### #{item.github_number} — {item.title}{spam_flag}")
+        reference = f"`{item.repo_owner}/{item.repo_name}/{item.github_number}`"
+        lines.append(f"### {reference} — {item.title}{spam_flag}")
         lines.append("")
         lines.append(f"- **Link:** `{item.html_url}`")
         lines.append(f"- **Suggested label:** {judgment.suggested_label or '(none)'}")
@@ -95,6 +98,7 @@ def format_digest_body(
     issues: list[JudgedIssue],
     label: str | None = None,
     backlog_issues: list[JudgedIssue] | None = None,
+    wip_digest_issue_number: int | None = None,
 ) -> str:
     """Render a day's judged issues into a Markdown digest body.
 
@@ -107,15 +111,29 @@ def format_digest_body(
     issues reviewed because nothing new needed triage, rendered as a
     clearly distinct section - never silently merged with `issues`, since
     that would misrepresent old backlog as new activity.
+
+    `wip_digest_issue_number` (see LOG.md entry 58), when given, means a
+    still-open, not-yet-reviewed digest already exists - a reminder line
+    is prepended pointing back at it. A bare "#NNN" is used here
+    deliberately (unlike scikit-learn issue references): this points at
+    another issue in *this same repo*, where a real clickable
+    cross-reference is exactly what's wanted, not something to avoid.
     """
 
     backlog_issues = backlog_issues or []
     scope = f'issue(s) labelled "{label}"' if label else "non-bot issue(s)"
 
-    if not issues and not backlog_issues:
-        return f"No newly created {scope} were found for {date.isoformat()}."
-
     lines: list[str] = []
+    if wip_digest_issue_number is not None:
+        lines.append(
+            f"_Still working on #{wip_digest_issue_number}? "
+            "The issue(s) below are what's new since it was opened._"
+        )
+        lines.append("")
+
+    if not issues and not backlog_issues:
+        lines.append(f"No newly created {scope} were found for {date.isoformat()}.")
+        return "\n".join(lines).strip() + "\n"
 
     if issues:
         lines.append(f"{len(issues)} {scope} reviewed for {date.isoformat()}.")
@@ -156,6 +174,7 @@ def build_digest(
     label: str | None = None,
     backlog_issue_numbers: list[int] | None = None,
     labels: list[str] | None = None,
+    wip_digest_issue_number: int | None = None,
 ) -> DigestContent:
     """Aggregate a window's judged issues into digest content.
 
@@ -174,6 +193,10 @@ def build_digest(
     `labels` (e.g. ["daily digest"], plus "manually-triggered" when
     applicable - see LOG.md entry 57) are attached to the GitHub issue
     publish_digest creates. Must already exist in the shadow repo.
+
+    `wip_digest_issue_number` (see LOG.md entry 58) is the shadow-repo
+    issue number of the most recent still-open digest, if one exists -
+    passed straight through to format_digest_body's reminder line.
     """
 
     display_date = window_end.astimezone(OPERATOR_TIMEZONE).date()
@@ -196,7 +219,13 @@ def build_digest(
     return DigestContent(
         digest_id=digest_id,
         title=format_digest_title(display_date),
-        body=format_digest_body(display_date, judged_issues, label, backlog_issues),
+        body=format_digest_body(
+            display_date,
+            judged_issues,
+            label,
+            backlog_issues,
+            wip_digest_issue_number=wip_digest_issue_number,
+        ),
         issue_count=len(judged_issues) + len(backlog_issues),
         labels=labels or [],
     )

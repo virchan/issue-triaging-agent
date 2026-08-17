@@ -11,7 +11,6 @@ import psycopg
 from src.bot_filter import partition_bot_issues
 from src.db import (
     ReviewedJudgment,
-    get_judged_github_numbers,
     get_recent_reviewed_judgments,
     has_judgment,
     save_issue_snapshots,
@@ -50,25 +49,29 @@ def _judge_and_persist(
     ids_by_number: dict[int, int],
     known_labels: list[str],
     recent_examples: list[ReviewedJudgment],
-) -> tuple[int, int, list[tuple[int, str]], list[int]]:
+) -> tuple[int, int, list[tuple[int, str]], list[int], list[int]]:
     """Judge each not-yet-judged issue and persist the result.
 
     Shared by fetch_and_judge and fetch_and_judge_backlog - only how the
     issue list is sourced differs between the two. Returns
-    (judged_count, already_judged_count, failures, judged_github_numbers) -
-    the last one lets a caller identify exactly which issues were newly
-    judged this call, needed to build the digest's backlog section.
+    (judged_count, already_judged_count, failures, judged_github_numbers,
+    reused_github_numbers) - a caller needs both number lists to know
+    every issue that ended up with a judgment this call, whether freshly
+    computed or reused from a prior run (see LOG.md entry 58: reusing an
+    existing judgment, not re-calling Gemini, is deliberate).
     """
 
     failures: list[tuple[int, str]] = []
     judged_count = 0
     already_judged_count = 0
     judged_numbers: list[int] = []
+    reused_numbers: list[int] = []
 
     for issue in issues:
         issue_id = ids_by_number[issue.number]
         if has_judgment(connection, issue_id):
             already_judged_count += 1
+            reused_numbers.append(issue.number)
             continue
 
         try:
@@ -85,7 +88,7 @@ def _judge_and_persist(
             LOGGER.warning(f"Judgment failed for issue #{issue.number}: {error}")
             failures.append((issue.number, str(error)))
 
-    return judged_count, already_judged_count, failures, judged_numbers
+    return judged_count, already_judged_count, failures, judged_numbers, reused_numbers
 
 
 def fetch_and_judge(
@@ -98,6 +101,7 @@ def fetch_and_judge(
     window_start: dt.datetime,
     window_end: dt.datetime,
     label: str | None = None,
+    cap: int | None = None,
 ) -> PipelineResult:
     """Fetch issues created in [window_start, window_end), filter, judge,
     and persist everything.
@@ -106,6 +110,12 @@ def fetch_and_judge(
     label are fetched in the first place - issues a maintainer has
     already triaged never enter the pipeline at all, rather than being
     fetched and then discarded.
+
+    `cap`, if given, judges at most that many of the found issues (see
+    LOG.md entry 58: used for the WIP-digest "what's new since digest X"
+    query, bounded like backlog catch-up is). None (the default) judges
+    everything found - the normal 24h window rarely finds enough issues
+    for this label to need bounding.
 
     A single issue's judgment failure is logged and skipped rather than
     aborting the whole run - one bad issue should not block the rest of
@@ -123,16 +133,17 @@ def fetch_and_judge(
         owner, repo, window_start, window_end, label=label
     )
     non_bot, bot = partition_bot_issues(issues)
+    to_judge = non_bot[:cap] if cap is not None else non_bot
 
-    ids_by_number = save_issue_snapshots(connection, owner, repo, non_bot, bot)
+    ids_by_number = save_issue_snapshots(connection, owner, repo, to_judge, bot)
 
     known_labels = github_client.fetch_labels(owner, repo)
     recent_examples = get_recent_reviewed_judgments(connection)
 
-    judged_count, already_judged_count, failures, _ = _judge_and_persist(
+    judged_count, already_judged_count, failures, _, _ = _judge_and_persist(
         gemini_judge=gemini_judge,
         connection=connection,
-        issues=non_bot,
+        issues=to_judge,
         ids_by_number=ids_by_number,
         known_labels=known_labels,
         recent_examples=recent_examples,
@@ -177,40 +188,45 @@ def fetch_and_judge_backlog(
     label: str,
     cap: int = BACKLOG_CAP,
 ) -> tuple[PipelineResult, list[int]]:
-    """When a poll finds nothing new, look for older open issues still
-    carrying `label` that have never been judged, oldest first, and
-    judge up to `cap` of them (Phase 8 idea A - see LOG.md/daily-log.md).
+    """When a poll finds nothing new, look for open issues still carrying
+    `label`, newest-created first, and judge up to `cap` of them (Phase 8
+    idea A - see LOG.md/daily-log.md).
+
+    Candidates are considered regardless of whether they've been judged
+    before (see LOG.md entry 58) - an issue already judged in a prior run
+    is *reused* (its existing judgment is shown, no new Gemini call)
+    rather than excluded, so a still-open real "Needs Triage" issue never
+    silently disappears from the digest just because we computed a
+    judgment for it once.
 
     Backlog issues fall outside any time window by definition, so they
     can never be produced by fetch_and_judge - this is a genuinely
     separate sourcing path, not a variant of the window-based one.
-    Returns the usual PipelineResult, plus the github_numbers actually
-    judged this call - the digest needs those explicitly, since
-    get_judged_issues_in_window can't find issues outside its window.
+    Returns the usual PipelineResult, plus every github_number that ended
+    up with a judgment this call (freshly judged or reused) - the digest
+    needs those explicitly, since get_judged_issues_in_window can't find
+    issues outside its window.
     """
 
     start = time.monotonic()
-    already_judged_numbers = get_judged_github_numbers(connection, owner, repo)
-
     candidates = github_client.fetch_open_issues_with_label(owner, repo, label)
     non_bot, bot = partition_bot_issues(candidates)
-    not_yet_judged = [
-        issue for issue in non_bot if issue.number not in already_judged_numbers
-    ]
-    to_judge = not_yet_judged[:cap]
+    to_judge = non_bot[:cap]
 
     ids_by_number = save_issue_snapshots(connection, owner, repo, to_judge, bot)
 
     known_labels = github_client.fetch_labels(owner, repo)
     recent_examples = get_recent_reviewed_judgments(connection)
 
-    judged_count, already_judged_count, failures, judged_numbers = _judge_and_persist(
-        gemini_judge=gemini_judge,
-        connection=connection,
-        issues=to_judge,
-        ids_by_number=ids_by_number,
-        known_labels=known_labels,
-        recent_examples=recent_examples,
+    judged_count, already_judged_count, failures, judged_numbers, reused_numbers = (
+        _judge_and_persist(
+            gemini_judge=gemini_judge,
+            connection=connection,
+            issues=to_judge,
+            ids_by_number=ids_by_number,
+            known_labels=known_labels,
+            recent_examples=recent_examples,
+        )
     )
 
     result = PipelineResult(
@@ -229,12 +245,12 @@ def fetch_and_judge_backlog(
             "repo": repo,
             "label": label,
             "candidates_found": len(candidates),
-            "already_judged_skipped": len(non_bot) - len(not_yet_judged),
-            "capped_out": len(not_yet_judged) - len(to_judge),
+            "reused_existing_judgment": already_judged_count,
+            "capped_out": len(non_bot) - len(to_judge),
             "duration_seconds": time.monotonic() - start,
             "judged": result.judged,
             "failure_count": len(result.failures),
         },
     )
 
-    return result, judged_numbers
+    return result, judged_numbers + reused_numbers

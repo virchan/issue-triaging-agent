@@ -8,7 +8,6 @@ import pytest
 from src.db import (
     connect,
     get_all_reviewed_judgments,
-    get_judged_github_numbers,
     get_judged_issues_by_numbers,
     get_recent_reviewed_judgments,
     get_unreviewed_digests,
@@ -148,8 +147,20 @@ def test_get_recent_reviewed_judgments_maps_rows_and_passes_limit(
 def test_get_unreviewed_digests_maps_rows(mocker: Any) -> None:
     connection, cursor = _mock_connection(mocker)
     cursor.fetchall.return_value = [
-        (3, "virchan", "issue-triaging-agent-digests", 6),
-        (4, "virchan", "issue-triaging-agent-digests", 7),
+        (
+            3,
+            "virchan",
+            "issue-triaging-agent-digests",
+            6,
+            dt.datetime(2026, 8, 15, 0, 0, 0, tzinfo=dt.UTC),
+        ),
+        (
+            4,
+            "virchan",
+            "issue-triaging-agent-digests",
+            7,
+            dt.datetime(2026, 8, 16, 0, 0, 0, tzinfo=dt.UTC),
+        ),
     ]
 
     results = get_unreviewed_digests(connection)
@@ -157,6 +168,7 @@ def test_get_unreviewed_digests_maps_rows(mocker: Any) -> None:
     assert len(results) == 2
     assert results[0].digest_id == 3
     assert results[0].shadow_issue_number == 6
+    assert results[0].window_end == dt.datetime(2026, 8, 15, 0, 0, 0, tzinfo=dt.UTC)
     assert results[1].digest_id == 4
     sql = cursor.execute.call_args.args[0]
     assert "state = 'published'" in sql
@@ -190,15 +202,6 @@ def test_get_all_reviewed_judgments_maps_rows_unbounded(mocker: Any) -> None:
     assert "LIMIT" not in sql
 
 
-def test_get_judged_github_numbers_returns_a_set(mocker: Any) -> None:
-    connection, cursor = _mock_connection(mocker)
-    cursor.fetchall.return_value = [(34649,), (34650,), (34649,)]
-
-    result = get_judged_github_numbers(connection, "scikit-learn", "scikit-learn")
-
-    assert result == {34649, 34650}
-
-
 def test_get_judged_issues_by_numbers_returns_empty_without_querying(
     mocker: Any,
 ) -> None:
@@ -221,6 +224,8 @@ def test_get_judged_issues_by_numbers_maps_rows(mocker: Any) -> None:
             34648,
             "Title A",
             "https://github.com/scikit-learn/scikit-learn/issues/34648",
+            "scikit-learn",
+            "scikit-learn",
             "Documentation",
             False,
             "summary",

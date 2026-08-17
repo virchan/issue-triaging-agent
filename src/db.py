@@ -180,6 +180,8 @@ class JudgedIssue:
     github_number: int
     title: str
     html_url: str
+    repo_owner: str
+    repo_name: str
     judgment: IssueJudgment
 
 
@@ -190,19 +192,22 @@ def _row_to_judged_issue(row: tuple[Any, ...]) -> JudgedIssue:
         github_number=row[2],
         title=row[3],
         html_url=row[4],
+        repo_owner=row[5],
+        repo_name=row[6],
         judgment=IssueJudgment(
-            suggested_label=row[5],
-            is_spam=row[6],
-            summary=row[7],
-            priority=row[8],
-            rationale=row[9],
-            confidence=row[10],
+            suggested_label=row[7],
+            is_spam=row[8],
+            summary=row[9],
+            priority=row[10],
+            rationale=row[11],
+            confidence=row[12],
         ),
     )
 
 
 _JUDGED_ISSUE_SELECT = """
     SELECT i.id, j.id, i.github_number, i.title, i.html_url,
+           i.repo_owner, i.repo_name,
            j.suggested_label, j.is_spam, j.summary, j.priority,
            j.rationale, j.confidence
     FROM issues i
@@ -266,30 +271,6 @@ def get_judged_issues_by_numbers(
         rows = cursor.fetchall()
 
     return [_row_to_judged_issue(row) for row in rows]
-
-
-def get_judged_github_numbers(
-    connection: psycopg.Connection[Any],
-    repo_owner: str,
-    repo_name: str,
-) -> set[int]:
-    """All github issue numbers in this repo that already have a judgment.
-
-    Used to filter backlog candidates (see src.pipeline.fetch_and_judge_backlog)
-    so a backlog catch-up never re-judges an issue already covered.
-    """
-
-    with connection.cursor() as cursor:
-        cursor.execute(
-            """
-            SELECT i.github_number
-            FROM issues i
-            JOIN judgments j ON j.issue_id = i.id
-            WHERE i.repo_owner = %s AND i.repo_name = %s
-            """,
-            (repo_owner, repo_name),
-        )
-        return {row[0] for row in cursor.fetchall()}
 
 
 def create_digest(
@@ -645,23 +626,34 @@ def get_judgment_audit_trail(
 @dataclass
 class UnreviewedDigest:
     """A published digest not yet marked reviewed - a candidate to check
-    for correction capture (the issue may or may not be closed yet)."""
+    for correction capture (the issue may or may not be closed yet), and
+    (see LOG.md entry 58) to detect whether the daily job should treat
+    this run as "still working on a WIP digest" rather than a fresh poll.
+    """
 
     digest_id: int
     shadow_owner: str
     shadow_repo: str
     shadow_issue_number: int
+    window_end: dt.datetime
 
 
 def get_unreviewed_digests(
     connection: psycopg.Connection[Any],
 ) -> list[UnreviewedDigest]:
-    """Fetch all published-but-not-yet-reviewed digests, oldest first."""
+    """Fetch all published-but-not-yet-reviewed digests, oldest first.
+
+    The last element, if any, is the most recently created WIP digest -
+    used by run_daily_cycle (LOG.md entry 58) both to detect that a WIP
+    digest exists at all, and as the window_start for "what's new since
+    then" once one does.
+    """
 
     with connection.cursor() as cursor:
         cursor.execute(
             """
-            SELECT id, shadow_repo_owner, shadow_repo_name, shadow_issue_number
+            SELECT id, shadow_repo_owner, shadow_repo_name, shadow_issue_number,
+                   window_end
             FROM digests
             WHERE state = 'published'
             ORDER BY window_end ASC
@@ -675,6 +667,7 @@ def get_unreviewed_digests(
             shadow_owner=row[1],
             shadow_repo=row[2],
             shadow_issue_number=row[3],
+            window_end=row[4],
         )
         for row in rows
     ]

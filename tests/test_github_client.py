@@ -189,7 +189,7 @@ def test_fetch_open_issues_with_label_builds_expected_query(mocker: Any) -> None
         'repo:scikit-learn/scikit-learn is:issue is:open label:"Needs Triage"'
     )
     assert kwargs["params"]["sort"] == "created"
-    assert kwargs["params"]["order"] == "asc"
+    assert kwargs["params"]["order"] == "desc"
 
 
 def test_fetch_open_issues_with_label_does_not_paginate(mocker: Any) -> None:

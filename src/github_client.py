@@ -127,13 +127,14 @@ class GitHubClient:
         label: str,
         per_page: int = 100,
     ) -> list[GitHubIssue]:
-        """Fetch currently-open issues carrying `label`, oldest-created first.
+        """Fetch currently-open issues carrying `label`, newest-created first.
 
         Used for backlog catch-up (see src.pipeline.fetch_and_judge_backlog,
         Phase 8 idea A) - when a poll finds nothing new, this looks for
-        older open issues we've never judged. Single page (default 100):
-        enough to find a small handful of not-yet-judged candidates, not
-        built to page through an entire large backlog.
+        open issues carrying `label`. Newest-first per the operator's
+        explicit choice (see LOG.md entry 58) - not oldest-first. Single
+        page (default 100): enough to find a small handful of candidates,
+        not built to page through an entire large backlog.
         """
 
         query = f'repo:{owner}/{repo} is:issue is:open label:"{label}"'
@@ -144,7 +145,7 @@ class GitHubClient:
                 params={
                     "q": query,
                     "sort": "created",
-                    "order": "asc",
+                    "order": "desc",
                     "per_page": per_page,
                 },
             )
