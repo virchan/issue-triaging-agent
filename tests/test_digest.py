@@ -111,7 +111,7 @@ def test_format_digest_body_renders_backlog_only_section() -> None:
     )
 
     assert 'No newly created issue(s) labelled "Needs Triage" were found' in body
-    assert "1 older open issue(s) with that label were reviewed instead" in body
+    assert "1 older open issue(s) that still need triaging" in body
     assert "#1" in body
 
 
@@ -125,7 +125,7 @@ def test_format_digest_body_renders_combined_new_and_backlog_sections() -> None:
 
     assert "#1" in body
     assert "#2" in body
-    assert "1 older open issue(s) were reviewed too" in body
+    assert "1 older open issue(s) that still need triaging too" in body
 
 
 def test_format_digest_body_omits_backlog_section_when_none_given() -> None:

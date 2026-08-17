@@ -7,16 +7,16 @@ from typing import Any
 import psycopg
 
 from src.corrections import CaptureResult, capture_corrections
-from src.db import get_latest_digest_window_end, get_unreviewed_digests
+from src.db import get_unreviewed_digests
 from src.digest import DigestContent, build_digest, publish_digest
 from src.gemini_client import GeminiJudge
 from src.github_client import GitHubClient
 from src.pipeline import PipelineResult, fetch_and_judge, fetch_and_judge_backlog
 
-# How far back the very first poll ever looks, when there's no previous
-# digest's window_end to chain from. Matches the daily cadence; only used
-# once, on the first real run.
-BOOTSTRAP_WINDOW = dt.timedelta(hours=24)
+# Every poll looks back this far from "now", regardless of when the
+# previous run happened - see LOG.md entry 56. Matches the daily 09:00
+# PDT cadence: a shorter window would leave a permanent gap between runs.
+WINDOW_DURATION = dt.timedelta(hours=24)
 
 
 @dataclass
@@ -50,10 +50,11 @@ def run_daily_cycle(
     -> published -> reviewed/corrected -> closed.
 
     The poll window is computed here, not passed in by the caller - see
-    LOG.md entry 53. window_start is the previous digest's window_end (a
-    watermark, not "today"), so a late or missed run automatically
-    covers the full gap next time, and callers no longer need to reason
-    about timezones or calendar days at all. window_end is always now.
+    LOG.md entries 53/56. window_end is always now; window_start is a
+    fixed WINDOW_DURATION back from that - not chained from the previous
+    digest (see entry 56 for why the watermark-chain design was replaced
+    with this simpler fixed lookback). Callers never reason about
+    timezones or calendar days at all.
 
     Forward half (this window's issues through publishing a new digest)
     runs first, then every previously-published digest not yet marked
@@ -72,12 +73,7 @@ def run_daily_cycle(
     """
 
     window_end = dt.datetime.now(dt.UTC)
-    previous_window_end = get_latest_digest_window_end(connection)
-    window_start = (
-        previous_window_end
-        if previous_window_end is not None
-        else window_end - BOOTSTRAP_WINDOW
-    )
+    window_start = window_end - WINDOW_DURATION
 
     pipeline_result = fetch_and_judge(
         github_client=github_client,

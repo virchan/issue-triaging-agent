@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-import datetime as dt
 from typing import Any
 
 import pytest
 
 from src.corrections import CaptureResult
-from src.daily_job import BOOTSTRAP_WINDOW, run_daily_cycle
+from src.daily_job import WINDOW_DURATION, run_daily_cycle
 from src.db import UnreviewedDigest
 from src.digest import DigestContent
 from src.pipeline import PipelineResult
@@ -23,11 +22,6 @@ def test_run_daily_cycle_runs_forward_pipeline_and_checks_unreviewed_digests(
     mocker: Any, clients_and_connection: tuple[Any, Any, Any, Any]
 ) -> None:
     github_client, shadow_client, gemini_judge, connection = clients_and_connection
-
-    mocker.patch(
-        "src.daily_job.get_latest_digest_window_end",
-        return_value=dt.datetime(2026, 8, 11, 20, 0, 0, tzinfo=dt.UTC),
-    )
 
     pipeline_result = PipelineResult(
         fetched=2, bot_excluded=0, judged=2, already_judged=0
@@ -96,7 +90,6 @@ def test_run_daily_cycle_with_no_unreviewed_digests(
 ) -> None:
     github_client, shadow_client, gemini_judge, connection = clients_and_connection
 
-    mocker.patch("src.daily_job.get_latest_digest_window_end", return_value=None)
     mocker.patch(
         "src.daily_job.fetch_and_judge",
         return_value=PipelineResult(
@@ -133,19 +126,16 @@ def test_run_daily_cycle_with_no_unreviewed_digests(
     capture_mock.assert_not_called()
 
 
-def test_run_daily_cycle_uses_previous_digest_window_end_as_start(
+def test_run_daily_cycle_uses_a_fixed_lookback_window(
     mocker: Any, clients_and_connection: tuple[Any, Any, Any, Any]
 ) -> None:
-    """Regression test for the real 2026-08-13/14 incident (see LOG.md
-    entry 53): window_start must chain from the previous digest's
-    window_end, not be derived from "today" in any timezone."""
+    """Regression test for the watermark-chain redesign (see LOG.md entry
+    56): window_start is always WINDOW_DURATION back from "now", not
+    derived from any previous digest - the operator explicitly chose
+    this over the entry-53 watermark-chain design."""
 
     github_client, shadow_client, gemini_judge, connection = clients_and_connection
 
-    previous_window_end = dt.datetime(2026, 8, 13, 23, 47, 31, tzinfo=dt.UTC)
-    mocker.patch(
-        "src.daily_job.get_latest_digest_window_end", return_value=previous_window_end
-    )
     fetch_and_judge_mock = mocker.patch(
         "src.daily_job.fetch_and_judge",
         return_value=PipelineResult(
@@ -180,52 +170,10 @@ def test_run_daily_cycle_uses_previous_digest_window_end_as_start(
 
     fetch_kwargs = fetch_and_judge_mock.call_args.kwargs
     build_kwargs = build_digest_mock.call_args.kwargs
-    assert fetch_kwargs["window_start"] == previous_window_end
-    assert build_kwargs["window_start"] == previous_window_end
-    assert fetch_kwargs["window_end"] == build_kwargs["window_end"]
+    assert fetch_kwargs["window_end"] - fetch_kwargs["window_start"] == WINDOW_DURATION
+    assert build_kwargs["window_start"] == fetch_kwargs["window_start"]
+    assert build_kwargs["window_end"] == fetch_kwargs["window_end"]
     assert build_kwargs["label"] == "Needs Triage"
-
-
-def test_run_daily_cycle_bootstraps_window_when_no_previous_digest(
-    mocker: Any, clients_and_connection: tuple[Any, Any, Any, Any]
-) -> None:
-    github_client, shadow_client, gemini_judge, connection = clients_and_connection
-
-    mocker.patch("src.daily_job.get_latest_digest_window_end", return_value=None)
-    fetch_and_judge_mock = mocker.patch(
-        "src.daily_job.fetch_and_judge",
-        return_value=PipelineResult(
-            fetched=0, bot_excluded=0, judged=0, already_judged=0
-        ),
-    )
-    mocker.patch(
-        "src.daily_job.fetch_and_judge_backlog",
-        return_value=(
-            PipelineResult(fetched=0, bot_excluded=0, judged=0, already_judged=0),
-            [],
-        ),
-    )
-    mocker.patch(
-        "src.daily_job.build_digest",
-        return_value=DigestContent(digest_id=1, title="t", body="b", issue_count=0),
-    )
-    mocker.patch("src.daily_job.publish_digest", return_value=None)
-    mocker.patch("src.daily_job.get_unreviewed_digests", return_value=[])
-
-    run_daily_cycle(
-        github_client=github_client,
-        shadow_client=shadow_client,
-        gemini_judge=gemini_judge,
-        connection=connection,
-        source_owner="scikit-learn",
-        source_repo="scikit-learn",
-        shadow_owner="virchan",
-        shadow_repo="issue-triaging-agent-digests",
-        label="Needs Triage",
-    )
-
-    fetch_kwargs = fetch_and_judge_mock.call_args.kwargs
-    assert fetch_kwargs["window_end"] - fetch_kwargs["window_start"] == BOOTSTRAP_WINDOW
 
 
 # --- Backlog catch-up orchestration (Phase 8 idea A - see LOG.md/daily-log.md) ---
@@ -236,7 +184,6 @@ def test_run_daily_cycle_does_not_trigger_backlog_when_new_issues_found(
 ) -> None:
     github_client, shadow_client, gemini_judge, connection = clients_and_connection
 
-    mocker.patch("src.daily_job.get_latest_digest_window_end", return_value=None)
     mocker.patch(
         "src.daily_job.fetch_and_judge",
         return_value=PipelineResult(
@@ -272,7 +219,6 @@ def test_run_daily_cycle_triggers_backlog_when_nothing_new_found(
 ) -> None:
     github_client, shadow_client, gemini_judge, connection = clients_and_connection
 
-    mocker.patch("src.daily_job.get_latest_digest_window_end", return_value=None)
     mocker.patch("src.daily_job.fetch_and_judge", return_value=_EMPTY)
     backlog_result = PipelineResult(
         fetched=2, bot_excluded=0, judged=2, already_judged=0
@@ -318,7 +264,6 @@ def test_run_daily_cycle_does_not_trigger_backlog_without_a_label(
 ) -> None:
     github_client, shadow_client, gemini_judge, connection = clients_and_connection
 
-    mocker.patch("src.daily_job.get_latest_digest_window_end", return_value=None)
     mocker.patch("src.daily_job.fetch_and_judge", return_value=_EMPTY)
     backlog_mock = mocker.patch("src.daily_job.fetch_and_judge_backlog")
     mocker.patch(

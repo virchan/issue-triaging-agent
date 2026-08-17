@@ -23,9 +23,12 @@ from src.github_client import GitHubClient, GitHubIssue
 LOGGER = logging.getLogger(__name__)
 
 # Backlog catch-up (Phase 8 idea A) caps how many older issues get judged
-# on an idle day at once, matching the operator's real stated daily
-# review capacity (2-3/day, up to 5) - see LOG.md.
-BACKLOG_CAP = 3
+# on an idle day at once. Bounded well under the Gemini free-tier's 20
+# requests/day/project/model quota (see LOG.md entry 56), not tied to the
+# operator's real daily review capacity (2-3/day, up to 5) the way the
+# original cap of 3 was - the operator explicitly chose to review more of
+# the backlog per idle day than that pace alone would suggest.
+BACKLOG_CAP = 15
 
 
 @dataclass

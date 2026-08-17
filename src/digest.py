@@ -126,14 +126,16 @@ def format_digest_body(
             lines.append("---")
             lines.append("")
             lines.append(
-                f"No new {scope} required attention, so "
-                f"{len(backlog_issues)} older open issue(s) were reviewed too:"
+                "That's everything newly created. Because there's nothing "
+                f"else new to triage, here are {len(backlog_issues)} older "
+                "open issue(s) that still need triaging too:"
             )
         else:
             lines.append(
-                f"No newly created {scope} were found for {date.isoformat()}, "
-                f"so {len(backlog_issues)} older open issue(s) with that label "
-                "were reviewed instead:"
+                f"No newly created {scope} were found for {date.isoformat()}. "
+                f"Because there's nothing new to triage, here are "
+                f"{len(backlog_issues)} older open issue(s) that still need "
+                "triaging:"
             )
         lines.append("")
         lines.extend(_render_issue_section(backlog_issues))

@@ -301,12 +301,12 @@ def create_digest(
 ) -> int:
     """Create a new digest row for [window_start, window_end).
 
-    No uniqueness constraint on the window: each run's window_start is
-    derived from the previous digest's window_end (see
-    get_latest_digest_window_end), so windows chain together and don't
-    naturally collide. A double-invocation just produces a second,
-    narrower window rather than a duplicate - has_judgment already
-    prevents re-judging any issue that window happens to re-fetch.
+    No uniqueness constraint on the window: window_start/window_end are a
+    fixed lookback from "now" (see LOG.md entry 56), so nothing about the
+    schema requires them to be distinct across runs. A double-invocation
+    just produces a second, overlapping window rather than a duplicate -
+    has_judgment already prevents re-judging any issue that window
+    happens to re-fetch.
     """
 
     with connection.cursor() as cursor:
@@ -321,24 +321,6 @@ def create_digest(
         row = cursor.fetchone()
         assert row is not None
         return row[0]
-
-
-def get_latest_digest_window_end(
-    connection: psycopg.Connection[Any],
-) -> dt.datetime | None:
-    """The most recent digest's window_end, or None if no digest exists yet.
-
-    The watermark the next poll's window_start is derived from - see
-    LOG.md entry 53. None only for the very first run ever, before any
-    digest has been created.
-    """
-
-    with connection.cursor() as cursor:
-        cursor.execute(
-            "SELECT window_end FROM digests ORDER BY window_end DESC LIMIT 1"
-        )
-        row = cursor.fetchone()
-        return row[0] if row is not None else None
 
 
 def link_judgments_to_digest(
