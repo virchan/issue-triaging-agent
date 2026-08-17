@@ -272,6 +272,38 @@ def test_fetch_labels_wraps_malformed_response(mocker: Any) -> None:
         client.fetch_labels("scikit-learn", "scikit-learn")
 
 
+def test_create_issue_omits_labels_field_by_default(mocker: Any) -> None:
+    response = mocker.Mock()
+    response.raise_for_status.return_value = None
+    response.json.return_value = {"number": 11, "html_url": "https://example.com/11"}
+    post = mocker.patch.object(httpx.Client, "post", return_value=response)
+
+    client = GitHubClient()
+    client.create_issue("virchan", "issue-triaging-agent-digests", "t", "b")
+
+    _, kwargs = post.call_args
+    assert "labels" not in kwargs["json"]
+
+
+def test_create_issue_includes_labels_when_given(mocker: Any) -> None:
+    response = mocker.Mock()
+    response.raise_for_status.return_value = None
+    response.json.return_value = {"number": 11, "html_url": "https://example.com/11"}
+    post = mocker.patch.object(httpx.Client, "post", return_value=response)
+
+    client = GitHubClient()
+    client.create_issue(
+        "virchan",
+        "issue-triaging-agent-digests",
+        "t",
+        "b",
+        labels=["daily digest", "manually-triggered"],
+    )
+
+    _, kwargs = post.call_args
+    assert kwargs["json"]["labels"] == ["daily digest", "manually-triggered"]
+
+
 def test_create_issue_wraps_http_errors(mocker: Any) -> None:
     response = mocker.Mock()
     response.raise_for_status.side_effect = httpx.HTTPStatusError(

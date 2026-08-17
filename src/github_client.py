@@ -190,14 +190,27 @@ class GitHubClient:
         return labels
 
     def create_issue(
-        self, owner: str, repo: str, title: str, body: str
+        self,
+        owner: str,
+        repo: str,
+        title: str,
+        body: str,
+        labels: list[str] | None = None,
     ) -> tuple[int, str]:
-        """Create an issue, returning (issue_number, html_url)."""
+        """Create an issue, returning (issue_number, html_url).
+
+        `labels` must already exist in the repo - this does not create
+        them (they're created by hand, see LOG.md entry 57).
+        """
+
+        payload: dict[str, Any] = {"title": title, "body": body}
+        if labels:
+            payload["labels"] = labels
 
         try:
             response = self._client.post(
                 f"/repos/{owner}/{repo}/issues",
-                json={"title": title, "body": body},
+                json=payload,
             )
             response.raise_for_status()
             data = response.json()

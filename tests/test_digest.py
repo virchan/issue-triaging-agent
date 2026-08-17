@@ -166,6 +166,30 @@ def test_build_digest_aggregates_and_persists(mocker: Any, connection: Any) -> N
         connection, "virchan", "issue-triaging-agent-digests", window_start, window_end
     )
     link.assert_called_once_with(connection, 7, [501])
+    assert content.labels == []
+
+
+def test_build_digest_passes_through_labels(mocker: Any, connection: Any) -> None:
+    window_start = dt.datetime(2026, 8, 3, 20, 0, 0, tzinfo=dt.UTC)
+    window_end = dt.datetime(2026, 8, 4, 20, 0, 0, tzinfo=dt.UTC)
+
+    mocker.patch("src.digest.get_judged_issues_in_window", return_value=[])
+    mocker.patch("src.digest.create_digest", return_value=7)
+    mocker.patch("src.digest.link_judgments_to_digest")
+
+    content = build_digest(
+        connection,
+        source_owner="scikit-learn",
+        source_repo="scikit-learn",
+        shadow_owner="virchan",
+        shadow_repo="issue-triaging-agent-digests",
+        window_start=window_start,
+        window_end=window_end,
+        label="Needs Triage",
+        labels=["daily digest", "manually-triggered"],
+    )
+
+    assert content.labels == ["daily digest", "manually-triggered"]
 
 
 def test_build_digest_includes_backlog_issues(mocker: Any, connection: Any) -> None:
@@ -234,7 +258,9 @@ def test_publish_digest_creates_issue_and_marks_published(
     mark_published = mocker.patch("src.digest.mark_digest_published")
     shadow_client = mocker.Mock()
     shadow_client.create_issue.return_value = (5, "https://example.com/issues/5")
-    digest = DigestContent(digest_id=7, title="t", body="b", issue_count=1)
+    digest = DigestContent(
+        digest_id=7, title="t", body="b", issue_count=1, labels=["daily digest"]
+    )
 
     with caplog.at_level("INFO"):
         result = publish_digest(
@@ -247,7 +273,7 @@ def test_publish_digest_creates_issue_and_marks_published(
 
     assert result == (5, "https://example.com/issues/5")
     shadow_client.create_issue.assert_called_once_with(
-        "virchan", "issue-triaging-agent-digests", "t", "b"
+        "virchan", "issue-triaging-agent-digests", "t", "b", labels=["daily digest"]
     )
     mark_published.assert_called_once_with(connection, 7, 5)
 

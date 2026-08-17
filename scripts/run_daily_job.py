@@ -55,6 +55,7 @@ def main() -> None:
                 shadow_owner=SHADOW_OWNER,
                 shadow_repo=SHADOW_REPO,
                 label=TRIAGE_LABEL,
+                manually_triggered=False,
             )
     except Exception:
         LOGGER.exception("Daily cycle failed", extra={"event": "daily_cycle_failed"})

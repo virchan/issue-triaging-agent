@@ -287,3 +287,76 @@ def test_run_daily_cycle_does_not_trigger_backlog_without_a_label(
 
     backlog_mock.assert_not_called()
     assert result.backlog is None
+
+
+# --- Digest labels (LOG.md entry 57) ---
+
+
+def test_run_daily_cycle_applies_only_the_digest_label_by_default(
+    mocker: Any, clients_and_connection: tuple[Any, Any, Any, Any]
+) -> None:
+    github_client, shadow_client, gemini_judge, connection = clients_and_connection
+
+    mocker.patch(
+        "src.daily_job.fetch_and_judge",
+        return_value=PipelineResult(
+            fetched=1, bot_excluded=0, judged=1, already_judged=0
+        ),
+    )
+    build_digest_mock = mocker.patch(
+        "src.daily_job.build_digest",
+        return_value=DigestContent(digest_id=1, title="t", body="b", issue_count=1),
+    )
+    mocker.patch("src.daily_job.publish_digest", return_value=None)
+    mocker.patch("src.daily_job.get_unreviewed_digests", return_value=[])
+
+    run_daily_cycle(
+        github_client=github_client,
+        shadow_client=shadow_client,
+        gemini_judge=gemini_judge,
+        connection=connection,
+        source_owner="scikit-learn",
+        source_repo="scikit-learn",
+        shadow_owner="virchan",
+        shadow_repo="issue-triaging-agent-digests",
+        label="Needs Triage",
+    )
+
+    assert build_digest_mock.call_args.kwargs["labels"] == ["daily digest"]
+
+
+def test_run_daily_cycle_adds_manually_triggered_label_when_set(
+    mocker: Any, clients_and_connection: tuple[Any, Any, Any, Any]
+) -> None:
+    github_client, shadow_client, gemini_judge, connection = clients_and_connection
+
+    mocker.patch(
+        "src.daily_job.fetch_and_judge",
+        return_value=PipelineResult(
+            fetched=1, bot_excluded=0, judged=1, already_judged=0
+        ),
+    )
+    build_digest_mock = mocker.patch(
+        "src.daily_job.build_digest",
+        return_value=DigestContent(digest_id=1, title="t", body="b", issue_count=1),
+    )
+    mocker.patch("src.daily_job.publish_digest", return_value=None)
+    mocker.patch("src.daily_job.get_unreviewed_digests", return_value=[])
+
+    run_daily_cycle(
+        github_client=github_client,
+        shadow_client=shadow_client,
+        gemini_judge=gemini_judge,
+        connection=connection,
+        source_owner="scikit-learn",
+        source_repo="scikit-learn",
+        shadow_owner="virchan",
+        shadow_repo="issue-triaging-agent-digests",
+        label="Needs Triage",
+        manually_triggered=True,
+    )
+
+    assert build_digest_mock.call_args.kwargs["labels"] == [
+        "daily digest",
+        "manually-triggered",
+    ]

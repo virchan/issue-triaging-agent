@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -43,6 +43,7 @@ class DigestContent:
     title: str
     body: str
     issue_count: int
+    labels: list[str] = field(default_factory=list)
 
 
 def format_digest_title(date: dt.date) -> str:
@@ -154,6 +155,7 @@ def build_digest(
     window_end: dt.datetime,
     label: str | None = None,
     backlog_issue_numbers: list[int] | None = None,
+    labels: list[str] | None = None,
 ) -> DigestContent:
     """Aggregate a window's judged issues into digest content.
 
@@ -168,6 +170,10 @@ def build_digest(
     github_numbers judged by fetch_and_judge_backlog this run, if any -
     fetched here by explicit number rather than by window, since a
     backlog issue is by definition older than window_start.
+
+    `labels` (e.g. ["daily digest"], plus "manually-triggered" when
+    applicable - see LOG.md entry 57) are attached to the GitHub issue
+    publish_digest creates. Must already exist in the shadow repo.
     """
 
     display_date = window_end.astimezone(OPERATOR_TIMEZONE).date()
@@ -192,6 +198,7 @@ def build_digest(
         title=format_digest_title(display_date),
         body=format_digest_body(display_date, judged_issues, label, backlog_issues),
         issue_count=len(judged_issues) + len(backlog_issues),
+        labels=labels or [],
     )
 
 
@@ -229,7 +236,7 @@ def publish_digest(
         return None
 
     issue_number, html_url = shadow_client.create_issue(
-        shadow_owner, shadow_repo, digest.title, digest.body
+        shadow_owner, shadow_repo, digest.title, digest.body, labels=digest.labels
     )
     mark_digest_published(connection, digest.digest_id, issue_number)
 

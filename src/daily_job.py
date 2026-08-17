@@ -18,6 +18,11 @@ from src.pipeline import PipelineResult, fetch_and_judge, fetch_and_judge_backlo
 # PDT cadence: a shorter window would leave a permanent gap between runs.
 WINDOW_DURATION = dt.timedelta(hours=24)
 
+# Attached to every digest issue created - see LOG.md entry 57. Must
+# already exist in the shadow repo (created by hand, not by this code).
+DIGEST_LABEL = "daily digest"
+MANUALLY_TRIGGERED_LABEL = "manually-triggered"
+
 
 @dataclass
 class DailyCycleResult:
@@ -45,6 +50,7 @@ def run_daily_cycle(
     shadow_owner: str,
     shadow_repo: str,
     label: str | None,
+    manually_triggered: bool = False,
 ) -> DailyCycleResult:
     """Run the full state machine: fetched -> filtered/judged -> digested
     -> published -> reviewed/corrected -> closed.
@@ -70,10 +76,20 @@ def run_daily_cycle(
 
     github_client must be read-only (scikit-learn); shadow_client must
     be authenticated with SHADOW_REPO_TOKEN (shadow repo writes).
+
+    `manually_triggered` (see LOG.md entry 57) is True only when this
+    call came from app.py's POST /trigger (the on-demand path), never
+    from the scheduled Cloud Run Job - it controls whether the published
+    digest issue also gets MANUALLY_TRIGGERED_LABEL alongside
+    DIGEST_LABEL.
     """
 
     window_end = dt.datetime.now(dt.UTC)
     window_start = window_end - WINDOW_DURATION
+
+    digest_labels = [DIGEST_LABEL]
+    if manually_triggered:
+        digest_labels.append(MANUALLY_TRIGGERED_LABEL)
 
     pipeline_result = fetch_and_judge(
         github_client=github_client,
@@ -108,6 +124,7 @@ def run_daily_cycle(
         window_end=window_end,
         label=label,
         backlog_issue_numbers=backlog_issue_numbers,
+        labels=digest_labels,
     )
 
     published = publish_digest(

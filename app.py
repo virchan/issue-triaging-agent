@@ -119,6 +119,7 @@ def trigger(x_trigger_token: str | None = Header(default=None)) -> TriggerRespon
                 shadow_owner=SHADOW_OWNER,
                 shadow_repo=SHADOW_REPO,
                 label=TRIAGE_LABEL,
+                manually_triggered=True,
             )
     except (
         GitHubClientError,
