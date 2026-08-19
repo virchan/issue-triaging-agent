@@ -18,10 +18,10 @@ CREATE TABLE IF NOT EXISTS issues (
 );
 
 -- One row per polled time window's digest, published to the operator-owned
--- shadow repo (see design-plan.md §3 and LOG.md entries 2-3). window_start
--- is the previous digest's window_end (a watermark, not a calendar day) -
--- see LOG.md entry 53 for why: a fixed calendar-day design broke on the
--- very first real scheduled run (17:00 PDT lands exactly on 00:00 UTC).
+-- shadow repo. window_start is a fixed lookback from "now" (or, if a
+-- previous digest is still unreviewed, that digest's window_end) - not
+-- a calendar day: a fixed calendar-day design broke on the very first
+-- real scheduled run (17:00 PDT lands exactly on 00:00 UTC).
 CREATE TABLE IF NOT EXISTS digests (
     id                      SERIAL PRIMARY KEY,
     window_start            TIMESTAMPTZ NOT NULL,
@@ -35,9 +35,8 @@ CREATE TABLE IF NOT EXISTS digests (
     closed_at                TIMESTAMPTZ
 );
 
--- Finalized at Step 11 to match src/judgment.py's IssueJudgment. Note
--- what's deliberately absent: no duplicate-candidate fields (dropped from
--- the MVP, see LOG.md).
+-- Matches src/judgment.py's IssueJudgment. Note what's deliberately
+-- absent: no duplicate-candidate fields (dropped from the MVP).
 CREATE TABLE IF NOT EXISTS judgments (
     id                  SERIAL PRIMARY KEY,
     issue_id            INTEGER NOT NULL UNIQUE REFERENCES issues (id),
@@ -52,14 +51,18 @@ CREATE TABLE IF NOT EXISTS judgments (
 );
 
 -- The operator's corrections, parsed from their comments on a digest
--- issue (see LOG.md entry 3 — publish-then-review-and-correct). These
--- feed back into future prompts as few-shot context and grow the golden
--- evaluation set (open-questions.md items 3-4).
+-- issue - publish-then-review-and-correct. These feed back into future
+-- prompts as few-shot context and grow the golden evaluation set
+-- (open-questions.md items 3-4). One GitHub comment can correct several
+-- issues at once (one bullet per issue), so the uniqueness is on the
+-- (comment, judgment) pair, not the comment alone - a comment can
+-- legitimately produce more than one correction row.
 CREATE TABLE IF NOT EXISTS corrections (
     id                  SERIAL PRIMARY KEY,
     judgment_id         INTEGER NOT NULL REFERENCES judgments (id),
-    github_comment_id   BIGINT NOT NULL UNIQUE,
+    github_comment_id   BIGINT NOT NULL,
     comment_body        TEXT NOT NULL,
     github_created_at   TIMESTAMPTZ NOT NULL,
-    captured_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+    captured_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (github_comment_id, judgment_id)
 );

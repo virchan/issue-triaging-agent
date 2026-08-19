@@ -11,6 +11,7 @@ from src.db import (
     get_judged_issues_by_numbers,
     get_recent_reviewed_judgments,
     get_unreviewed_digests,
+    save_correction,
     save_issue_snapshot,
     save_issue_snapshots,
 )
@@ -109,6 +110,60 @@ def test_save_issue_snapshots_tags_both_partitions_and_commits(
     assert first_call_params[-1] is False
     assert second_call_params[-1] is True
     connection.commit.assert_called_once()
+
+
+def test_save_correction_returns_new_id_on_insert(mocker: Any) -> None:
+    connection, cursor = _mock_connection(mocker)
+    cursor.fetchone.return_value = (9,)
+
+    result_id = save_correction(
+        connection, 501, 1, "text", dt.datetime(2026, 8, 4, tzinfo=dt.UTC)
+    )
+
+    assert result_id == 9
+    assert cursor.execute.call_count == 1
+    sql = cursor.execute.call_args.args[0]
+    assert "ON CONFLICT (github_comment_id, judgment_id)" in sql
+
+
+def test_save_correction_falls_back_to_select_on_conflict(mocker: Any) -> None:
+    connection, cursor = _mock_connection(mocker)
+    cursor.fetchone.side_effect = [None, (4,)]
+
+    result_id = save_correction(
+        connection, 501, 1, "text", dt.datetime(2026, 8, 4, tzinfo=dt.UTC)
+    )
+
+    assert result_id == 4
+    assert cursor.execute.call_count == 2
+    select_sql, select_params = cursor.execute.call_args_list[1].args
+    assert "github_comment_id = %s AND judgment_id = %s" in select_sql
+    assert select_params == (1, 501)
+
+
+def test_save_correction_allows_the_same_comment_for_a_different_judgment(
+    mocker: Any,
+) -> None:
+    """Regression test: one GitHub comment correcting several issues must
+    be able to save a correction per judgment, not just the first -
+    uniqueness is (comment, judgment), not comment alone."""
+
+    connection, cursor = _mock_connection(mocker)
+    cursor.fetchone.return_value = (1,)
+
+    save_correction(
+        connection, 501, 1, "text a", dt.datetime(2026, 8, 4, tzinfo=dt.UTC)
+    )
+    save_correction(
+        connection, 502, 1, "text b", dt.datetime(2026, 8, 4, tzinfo=dt.UTC)
+    )
+
+    assert cursor.execute.call_count == 2
+    first_params = cursor.execute.call_args_list[0].args[1]
+    second_params = cursor.execute.call_args_list[1].args[1]
+    assert first_params[0] == 501
+    assert second_params[0] == 502
+    assert first_params[1] == second_params[1] == 1
 
 
 def test_get_recent_reviewed_judgments_maps_rows_and_passes_limit(

@@ -406,7 +406,10 @@ def save_correction(
 ) -> int:
     """Insert a correction, or return the existing row's id if already captured.
 
-    Idempotent on github_comment_id.
+    Idempotent on (github_comment_id, judgment_id) - one comment can
+    correct several issues at once (one bullet per issue), so a single
+    comment legitimately produces several correction rows; only a retry
+    of the exact same (comment, judgment) pair is a duplicate.
     """
 
     with connection.cursor() as cursor:
@@ -416,7 +419,7 @@ def save_correction(
                 judgment_id, github_comment_id, comment_body, github_created_at
             )
             VALUES (%s, %s, %s, %s)
-            ON CONFLICT (github_comment_id) DO NOTHING
+            ON CONFLICT (github_comment_id, judgment_id) DO NOTHING
             RETURNING id
             """,
             (judgment_id, github_comment_id, comment_body, github_created_at),
@@ -426,8 +429,8 @@ def save_correction(
             return row[0]
 
         cursor.execute(
-            "SELECT id FROM corrections WHERE github_comment_id = %s",
-            (github_comment_id,),
+            "SELECT id FROM corrections WHERE github_comment_id = %s AND judgment_id = %s",
+            (github_comment_id, judgment_id),
         )
         existing = cursor.fetchone()
         assert existing is not None

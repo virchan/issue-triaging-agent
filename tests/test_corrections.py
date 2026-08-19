@@ -8,7 +8,7 @@ import pytest
 from src.corrections import (
     CaptureResult,
     capture_corrections,
-    extract_referenced_issue_number,
+    extract_corrections_by_issue,
     format_acknowledgment,
 )
 from src.github_client import GitHubComment
@@ -22,17 +22,65 @@ def _comment(comment_id: int, body: str) -> GitHubComment:
     )
 
 
-@pytest.mark.parametrize(
-    ("body", "expected"),
-    [
-        ("#34649 is not about linear model, it's about SVC", 34649),
-        ("Re #100: looks right to me", 100),
-        ("no reference here at all", None),
-        ("", None),
-    ],
-)
-def test_extract_referenced_issue_number(body: str, expected: int | None) -> None:
-    assert extract_referenced_issue_number(body) == expected
+def test_extract_corrections_by_issue_single_reference() -> None:
+    body = "`scikit-learn/scikit-learn/34649` is not about linear model, it's about SVC"
+    assert extract_corrections_by_issue(body) == {34649: body}
+
+
+def test_extract_corrections_by_issue_no_reference() -> None:
+    assert extract_corrections_by_issue("no reference here at all") == {}
+    assert extract_corrections_by_issue("") == {}
+
+
+def test_extract_corrections_by_issue_multiple_lines_multiple_issues() -> None:
+    """Regression test: one comment correcting several issues (one bullet
+    per issue) must produce one correction per issue, not just the first
+    one found or the whole comment glued to a single judgment."""
+
+    body = (
+        "* `scikit-learn/scikit-learn/34436` should include the "
+        '"Numerical Stability" label.\n'
+        "* `scikit-learn/scikit-learn/34618` should not include the "
+        '"Performance" label.\n'
+        "Otherwise, LGTM."
+    )
+
+    result = extract_corrections_by_issue(body)
+
+    assert set(result) == {34436, 34618}
+    assert "Numerical Stability" in result[34436]
+    assert "Performance" in result[34618]
+
+
+def test_extract_corrections_by_issue_combines_repeated_references() -> None:
+    """Two lines about the same issue in one comment are combined into a
+    single correction, not two separate ones (which the DB would reject
+    as a duplicate (comment, judgment) pair anyway)."""
+
+    body = (
+        "* `scikit-learn/scikit-learn/34618` should not include the "
+        '"Performance" label.\n'
+        "* `scikit-learn/scikit-learn/34618` should include the "
+        '"module:decomposition" label.'
+    )
+
+    result = extract_corrections_by_issue(body)
+
+    assert set(result) == {34618}
+    assert "Performance" in result[34618]
+    assert "module:decomposition" in result[34618]
+
+
+def test_extract_corrections_by_issue_ignores_a_bare_hash_number() -> None:
+    """A bare "#NNN" (e.g. referencing this repo's own issue number, not
+    a scikit-learn issue) must not be mistaken for an owner/repo/number
+    reference - a real correction was silently dropped this way once,
+    when a stray "#13" elsewhere in the comment matched instead of the
+    intended reference."""
+
+    body = "I thought I already closed #13 before this issue was created."
+
+    assert extract_corrections_by_issue(body) == {}
 
 
 def test_format_acknowledgment_with_corrections() -> None:
@@ -119,7 +167,11 @@ def test_capture_corrections_captures_referenced_comments_and_marks_reviewed(
     mocker.patch("src.corrections.is_digest_reviewed", return_value=False)
     shadow_client.get_issue_state.return_value = "closed"
     shadow_client.fetch_issue_comments.return_value = [
-        _comment(1, "#34649 is not about linear model, it's about SVC"),
+        _comment(
+            1,
+            "`scikit-learn/scikit-learn/34649` is not about linear model, "
+            "it's about SVC",
+        ),
         _comment(2, "no reference in this one"),
     ]
     mocker.patch(
@@ -144,10 +196,52 @@ def test_capture_corrections_captures_referenced_comments_and_marks_reviewed(
         connection,
         501,
         1,
-        "#34649 is not about linear model, it's about SVC",
+        "`scikit-learn/scikit-learn/34649` is not about linear model, it's about SVC",
         dt.datetime(2026, 8, 4, 12, 0, 0, tzinfo=dt.UTC),
     )
     mark_reviewed.assert_called_once_with(connection, 1)
+
+
+def test_capture_corrections_produces_one_correction_per_referenced_issue(
+    mocker: Any, shadow_client: Any, connection: Any
+) -> None:
+    """Regression test: a single comment correcting several issues (one
+    bullet per issue) must save one correction per issue - not one
+    correction for the whole comment attributed to just the first."""
+
+    mocker.patch("src.corrections.is_digest_reviewed", return_value=False)
+    shadow_client.get_issue_state.return_value = "closed"
+    shadow_client.fetch_issue_comments.return_value = [
+        _comment(
+            1,
+            "* `scikit-learn/scikit-learn/34436` should include Numerical "
+            "Stability.\n"
+            "* `scikit-learn/scikit-learn/34618` should not include "
+            "Performance.",
+        ),
+    ]
+    mocker.patch(
+        "src.corrections.get_judgment_id_for_issue_number",
+        side_effect=lambda conn, digest_id, number: {34436: 501, 34618: 502}.get(
+            number
+        ),
+    )
+    save_correction = mocker.patch("src.corrections.save_correction")
+    mocker.patch("src.corrections.mark_digest_reviewed")
+
+    result = capture_corrections(
+        connection,
+        shadow_client,
+        digest_id=1,
+        shadow_owner="virchan",
+        shadow_repo="issue-triaging-agent-digests",
+        shadow_issue_number=4,
+    )
+
+    assert result.captured == 2
+    assert result.unattributed_comment_ids == []
+    judgment_ids = {call.args[1] for call in save_correction.call_args_list}
+    assert judgment_ids == {501, 502}
 
 
 def test_capture_corrections_posts_one_acknowledgment_before_marking_reviewed(

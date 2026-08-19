@@ -314,6 +314,7 @@ def test_run_daily_cycle_applies_agent_triggered_label_by_default(
     assert build_digest_mock.call_args.kwargs["labels"] == [
         "daily digest",
         "triggered-by:agent",
+        "testing",
     ]
 
 
@@ -351,6 +352,48 @@ def test_run_daily_cycle_adds_manually_triggered_label_when_set(
     assert build_digest_mock.call_args.kwargs["labels"] == [
         "daily digest",
         "manually-triggered",
+        "testing",
+    ]
+
+
+def test_run_daily_cycle_omits_testing_label_when_toggled_off(
+    mocker: Any, clients_and_connection: tuple[Any, Any, Any, Any]
+) -> None:
+    """STILL_TESTING is a one-line toggle for when the operator considers
+    the system production-ready - confirm the label actually responds
+    to it rather than being hardcoded into the list."""
+
+    github_client, shadow_client, gemini_judge, connection = clients_and_connection
+
+    mocker.patch("src.daily_job.STILL_TESTING", False)
+    mocker.patch(
+        "src.daily_job.fetch_and_judge",
+        return_value=PipelineResult(
+            fetched=1, bot_excluded=0, judged=1, already_judged=0
+        ),
+    )
+    build_digest_mock = mocker.patch(
+        "src.daily_job.build_digest",
+        return_value=DigestContent(digest_id=1, title="t", body="b", issue_count=1),
+    )
+    mocker.patch("src.daily_job.publish_digest", return_value=None)
+    mocker.patch("src.daily_job.get_unreviewed_digests", return_value=[])
+
+    run_daily_cycle(
+        github_client=github_client,
+        shadow_client=shadow_client,
+        gemini_judge=gemini_judge,
+        connection=connection,
+        source_owner="scikit-learn",
+        source_repo="scikit-learn",
+        shadow_owner="virchan",
+        shadow_repo="issue-triaging-agent-digests",
+        label="Needs Triage",
+    )
+
+    assert build_digest_mock.call_args.kwargs["labels"] == [
+        "daily digest",
+        "triggered-by:agent",
     ]
 
 

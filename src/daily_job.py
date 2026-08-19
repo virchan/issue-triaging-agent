@@ -30,6 +30,14 @@ WINDOW_DURATION = dt.timedelta(hours=24)
 DIGEST_LABEL = "daily digest"
 MANUALLY_TRIGGERED_LABEL = "manually-triggered"
 AGENT_TRIGGERED_LABEL = "triggered-by:agent"
+TESTING_LABEL = "testing"
+
+# While the system is still being tested rather than trusted as
+# production output, every digest also gets TESTING_LABEL so a reader
+# can't mistake in-progress testing activity for finished output. Flip
+# to False (a one-line change) once the operator considers it
+# production-ready.
+STILL_TESTING = True
 
 
 @dataclass
@@ -137,6 +145,8 @@ def run_daily_cycle(
     digest_labels.append(
         MANUALLY_TRIGGERED_LABEL if manually_triggered else AGENT_TRIGGERED_LABEL
     )
+    if STILL_TESTING:
+        digest_labels.append(TESTING_LABEL)
 
     pipeline_result = fetch_and_judge(
         github_client=github_client,

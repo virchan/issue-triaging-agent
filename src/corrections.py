@@ -14,22 +14,34 @@ from src.db import (
 )
 from src.github_client import GitHubClient
 
-_ISSUE_REFERENCE_PATTERN = re.compile(r"#(\d+)")
+_ISSUE_REFERENCE_PATTERN = re.compile(r"[\w.-]+/[\w.-]+/(\d+)")
 
 
-def extract_referenced_issue_number(comment_body: str) -> int | None:
-    """Extract the first #NNN issue reference from a comment, if any.
+def extract_corrections_by_issue(comment_body: str) -> dict[int, str]:
+    """Split a comment into lines and extract every owner/repo/number
+    issue reference, one correction per referenced issue.
 
-    A digest issue aggregates multiple judged issues into one comment
-    thread, so a correction comment needs to say which issue it's about -
-    the natural way to do that is referencing it the same way the digest
-    itself does (e.g. "#34649 is not about linear model, it's about
-    SVC"). A comment with no recognizable reference can't be attributed
-    to a specific judgment, since correction.judgment_id is required.
+    A digest comment often corrects several issues at once - one bullet
+    per issue - so this returns a dict, not a single number: each line
+    naming a specific issue (e.g. "`scikit-learn/scikit-learn/34649` is
+    not about linear model, it's about SVC") becomes that issue's
+    correction text, matching the reference format the digest itself
+    renders. Lines naming the same issue twice within one comment are
+    combined into a single correction. A line with no recognizable
+    reference isn't attributed to any judgment (judgment_id is required)
+    and is dropped rather than silently merged into an unrelated issue's
+    correction.
     """
 
-    match = _ISSUE_REFERENCE_PATTERN.search(comment_body)
-    return int(match.group(1)) if match else None
+    corrections: dict[int, list[str]] = {}
+    for line in comment_body.splitlines():
+        match = _ISSUE_REFERENCE_PATTERN.search(line)
+        if match is None:
+            continue
+        github_number = int(match.group(1))
+        corrections.setdefault(github_number, []).append(line.strip())
+
+    return {number: "\n".join(lines) for number, lines in corrections.items()}
 
 
 @dataclass
@@ -61,7 +73,7 @@ def format_acknowledgment(result: CaptureResult) -> str:
         plural = "s" if count != 1 else ""
         lines.append(
             f"Note: {count} comment{plural} could not be matched to a specific "
-            "issue (no #NNN reference found) and were not recorded."
+            "issue (no owner/repo/number reference found) and were not recorded."
         )
 
     lines.append("This digest is now marked reviewed.")
@@ -81,9 +93,11 @@ def capture_corrections(
 
     Idempotent: does nothing if the digest was already marked reviewed,
     or if the issue isn't closed yet (review still in progress).
-    Comments without a parseable #NNN reference are not stored as
-    corrections (judgment_id is required) but are reported back so
-    nothing is silently dropped without a trace.
+    Comments without a parseable owner/repo/number reference on any line
+    are not stored as corrections (judgment_id is required) but are
+    reported back so nothing is silently dropped without a trace. A
+    comment naming several issues (one bullet per issue) produces one
+    correction per issue, not one correction for the whole comment.
 
     Posts a single acknowledgment comment (via shadow_client, so it
     appears as virchan-mirror) once processing is done. This is
@@ -106,25 +120,26 @@ def capture_corrections(
     captured = 0
     unattributed: list[int] = []
     for comment in comments:
-        issue_number = extract_referenced_issue_number(comment.body)
-        judgment_id = (
-            get_judgment_id_for_issue_number(connection, digest_id, issue_number)
-            if issue_number is not None
-            else None
-        )
-
-        if judgment_id is None:
+        corrections_by_issue = extract_corrections_by_issue(comment.body)
+        if not corrections_by_issue:
             unattributed.append(comment.id)
             continue
 
-        save_correction(
-            connection,
-            judgment_id,
-            comment.id,
-            comment.body,
-            comment.created_at,
-        )
-        captured += 1
+        for github_number, text in corrections_by_issue.items():
+            judgment_id = get_judgment_id_for_issue_number(
+                connection, digest_id, github_number
+            )
+            if judgment_id is None:
+                continue
+
+            save_correction(
+                connection,
+                judgment_id,
+                comment.id,
+                text,
+                comment.created_at,
+            )
+            captured += 1
 
     result = CaptureResult(
         issue_still_open=False,
