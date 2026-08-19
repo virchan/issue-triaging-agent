@@ -21,10 +21,10 @@ from src.github_client import GitHubClient
 
 LOGGER = logging.getLogger(__name__)
 
-# Display only - see LOG.md entry 53. The digest's actual identity is
-# [window_start, window_end); this only decides what calendar date the
-# title/body show a human, and can never cause a query to miss data the
-# way computing "today" in the wrong timezone did.
+# Display only. The digest's actual identity is [window_start,
+# window_end); this only decides what calendar date the title/body show
+# a human, and can never cause a query to miss data the way computing
+# "today" in the wrong timezone did.
 OPERATOR_TIMEZONE = ZoneInfo("America/Los_Angeles")
 
 _PRIORITY_ORDER = {"high": 0, "medium": 1, "low": 2}
@@ -37,7 +37,7 @@ _PRIORITY_HEADINGS = {
 
 @dataclass
 class DigestContent:
-    """Aggregated digest content, ready to publish (see Step 17)."""
+    """Aggregated digest content, ready to publish."""
 
     digest_id: int
     title: str
@@ -56,14 +56,14 @@ def _render_issue_section(issues: list[JudgedIssue]) -> list[str]:
 
     Issue references use the full `owner/repo/number` form, backtick-wrapped
     (inline code) - not a bare "#NNN", and not "owner/repo#NNN" either.
-    Two reasons (see LOG.md entries 55, 58): a real markdown link (or
-    GitHub's own owner/repo#NNN autolink syntax) with the scikit-learn
-    issue as its target creates a visible GitHub cross-reference on that
-    issue - confirmed empirically; and as this repo's own issue count
-    grows, a bare "#NNN" would eventually collide with one of *our own*
-    internal issue numbers, silently autolinking to the wrong issue. The
-    "/" separator (not "#") avoids GitHub's reference syntax entirely,
-    and the backticks are a second, independent guard against both.
+    Two reasons: a real markdown link (or GitHub's own owner/repo#NNN
+    autolink syntax) with the scikit-learn issue as its target creates a
+    visible GitHub cross-reference on that issue - confirmed empirically;
+    and as this repo's own issue count grows, a bare "#NNN" would
+    eventually collide with one of *our own* internal issue numbers,
+    silently autolinking to the wrong issue. The "/" separator (not "#")
+    avoids GitHub's reference syntax entirely, and the backticks are a
+    second, independent guard against both.
     """
 
     lines: list[str] = []
@@ -105,16 +105,16 @@ def format_digest_body(
     `label` (e.g. "Needs Triage") is named explicitly in the empty/summary
     messages when given - "no non-bot issues" previously implied no
     activity at all, when the query is actually scoped to one label. A
-    real gap flagged during real operation (see LOG.md, daily-log.md).
+    real gap flagged during real operation.
 
-    `backlog_issues` (Phase 8 idea A - see LOG.md) are older, already-open
-    issues reviewed because nothing new needed triage, rendered as a
-    clearly distinct section - never silently merged with `issues`, since
-    that would misrepresent old backlog as new activity.
+    `backlog_issues` are older, already-open issues reviewed because
+    nothing new needed triage, rendered as a clearly distinct section -
+    never silently merged with `issues`, since that would misrepresent
+    old backlog as new activity.
 
-    `wip_digest_issue_number` (see LOG.md entry 58), when given, means a
-    still-open, not-yet-reviewed digest already exists - a reminder line
-    is prepended pointing back at it. A bare "#NNN" is used here
+    `wip_digest_issue_number`, when given, means a still-open,
+    not-yet-reviewed digest already exists - a reminder line is
+    prepended pointing back at it. A bare "#NNN" is used here
     deliberately (unlike scikit-learn issue references): this points at
     another issue in *this same repo*, where a real clickable
     cross-reference is exactly what's wanted, not something to avoid.
@@ -181,22 +181,22 @@ def build_digest(
     Persists the digest record and links each judgment to it, but does
     not publish anything to GitHub - see publish_digest. The title/body
     show window_end's Pacific calendar date - display only, not the
-    digest's identity (see LOG.md entry 53). `label` should be the same
-    label the pipeline fetched with (e.g. "Needs Triage"), so the body
-    accurately describes what was actually searched for.
+    digest's identity. `label` should be the same label the pipeline
+    fetched with (e.g. "Needs Triage"), so the body accurately describes
+    what was actually searched for.
 
-    `backlog_issue_numbers` (Phase 8 idea A - see LOG.md) are the
-    github_numbers judged by fetch_and_judge_backlog this run, if any -
-    fetched here by explicit number rather than by window, since a
-    backlog issue is by definition older than window_start.
+    `backlog_issue_numbers` are the github_numbers judged by
+    fetch_and_judge_backlog this run, if any - fetched here by explicit
+    number rather than by window, since a backlog issue is by definition
+    older than window_start.
 
     `labels` (e.g. ["daily digest"], plus "manually-triggered" when
-    applicable - see LOG.md entry 57) are attached to the GitHub issue
-    publish_digest creates. Must already exist in the shadow repo.
+    applicable) are attached to the GitHub issue publish_digest creates.
+    Must already exist in the shadow repo.
 
-    `wip_digest_issue_number` (see LOG.md entry 58) is the shadow-repo
-    issue number of the most recent still-open digest, if one exists -
-    passed straight through to format_digest_body's reminder line.
+    `wip_digest_issue_number` is the shadow-repo issue number of the most
+    recent still-open digest, if one exists - passed straight through to
+    format_digest_body's reminder line.
     """
 
     display_date = window_end.astimezone(OPERATOR_TIMEZONE).date()

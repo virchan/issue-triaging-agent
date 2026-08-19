@@ -277,7 +277,7 @@ def test_fetch_and_judge_handles_unavailable_error(
     save_judgment.assert_not_called()
 
 
-# --- fetch_and_judge_backlog (Phase 8 idea A - see LOG.md/daily-log.md) ---
+# --- fetch_and_judge_backlog ---
 
 
 def test_fetch_and_judge_backlog_fetches_newest_first_and_judges_candidates(
@@ -311,9 +311,9 @@ def test_fetch_and_judge_backlog_fetches_newest_first_and_judges_candidates(
 def test_fetch_and_judge_backlog_reuses_already_judged_candidates(
     mocker: Any, github_client: Any, gemini_judge: Any, connection: Any
 ) -> None:
-    """Regression test for LOG.md entry 58: a candidate already judged in
-    a prior run is still included (reused, not excluded) - it must not
-    silently vanish from the digest just because it was judged once."""
+    """Regression test: a candidate already judged in a prior run is
+    still included (reused, not excluded) - it must not silently vanish
+    from the digest just because it was judged once."""
 
     github_client.fetch_open_issues_with_label.return_value = [
         _issue(10, "human"),

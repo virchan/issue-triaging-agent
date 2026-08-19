@@ -1,8 +1,8 @@
 """FastAPI service for issue-triaging-agent.
 
 Deployed as a separate Cloud Run service alongside the Cloud Run Job that
-runs the daily schedule (see design-plan.md and open-questions.md item 7 /
-LOG.md entry 7 for why this exists at all, rather than a bare batch job).
+runs the daily schedule (see open-questions.md item 7 for why this
+exists at all, rather than a bare batch job).
 
 Run locally with:
     uv run uvicorn app:app --reload
@@ -87,9 +87,9 @@ def trigger(x_trigger_token: str | None = Header(default=None)) -> TriggerRespon
     """Manually run the full state machine: fetch -> judge -> digest ->
     publish, plus correction capture for any previously-published digest
     not yet marked reviewed (a no-op for any whose GitHub issue isn't
-    closed yet). The poll window (see LOG.md entry 53) is computed inside
-    run_daily_cycle, same as the scheduled job - this endpoint runs the
-    identical logic on demand, not a separate "today" concept.
+    closed yet). The poll window is computed inside run_daily_cycle, same
+    as the scheduled job - this endpoint runs the identical logic on
+    demand, not a separate "today" concept.
 
     Requires a shared-secret header (TRIGGER_SECRET) - this endpoint
     spends real Gemini/GitHub API calls and posts a real issue, so it

@@ -13,7 +13,7 @@ class IssueJudgment(BaseModel):
     (see src/db.py), not part of what the model produces.
 
     Duplicate-candidate detection is intentionally not part of this
-    schema; see LOG.md for why it was dropped from the MVP.
+    schema - dropped from the MVP.
     """
 
     suggested_label: str | None = Field(

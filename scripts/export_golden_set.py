@@ -2,9 +2,8 @@
 
 Overwrites eval/golden_set.json with the complete current state - the
 database is the source of truth, this file is a versioned, CI-usable
-snapshot of it (see LOG.md for why: CI runs credential-free, with no
-database access, so the regression suite in Step 24 needs a static file
-rather than a live query).
+snapshot of it: CI runs credential-free, with no database access, so the
+regression suite needs a static file rather than a live query.
 
 Run with:
     uv run python -m scripts.export_golden_set

@@ -143,9 +143,8 @@ def test_trigger_runs_pipeline_with_correct_token(
 def test_trigger_does_not_pass_a_date_kwarg(
     mocker: Any, client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The poll window is computed inside run_daily_cycle now, not by the
-    caller - see LOG.md entry 53. /trigger must not resurrect a "today"
-    concept of its own."""
+    """The poll window is computed inside run_daily_cycle, not by the
+    caller. /trigger must not resurrect a "today" concept of its own."""
 
     monkeypatch.setenv("TRIGGER_SECRET", "the-real-secret")
     monkeypatch.setenv("GEMINI_API_KEY", "fake-key")

@@ -46,8 +46,7 @@ def format_acknowledgment(result: CaptureResult) -> str:
     """Build the single acknowledgment reply posted once review is captured.
 
     A deliberately small, one-shot response - not an interactive chat.
-    See LOG.md for why the fuller conversational version was scoped out
-    for now.
+    The fuller conversational version was scoped out for now.
     """
 
     lines: list[str] = []
@@ -88,8 +87,7 @@ def capture_corrections(
 
     Posts a single acknowledgment comment (via shadow_client, so it
     appears as virchan-mirror) once processing is done. This is
-    intentionally a one-shot reply, not an interactive back-and-forth -
-    see LOG.md for the scope decision and why.
+    intentionally a one-shot reply, not an interactive back-and-forth.
     """
 
     if is_digest_reviewed(connection, digest_id):

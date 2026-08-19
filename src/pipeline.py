@@ -21,12 +21,11 @@ from src.github_client import GitHubClient, GitHubIssue
 
 LOGGER = logging.getLogger(__name__)
 
-# Backlog catch-up (Phase 8 idea A) caps how many older issues get judged
-# on an idle day at once. Bounded well under the Gemini free-tier's 20
-# requests/day/project/model quota (see LOG.md entry 56), not tied to the
-# operator's real daily review capacity (2-3/day, up to 5) the way the
-# original cap of 3 was - the operator explicitly chose to review more of
-# the backlog per idle day than that pace alone would suggest.
+# Backlog catch-up caps how many older issues get judged on an idle day
+# at once. Bounded well under the Gemini free-tier's 20 requests/day/
+# project/model quota, not tied to the operator's real daily review
+# capacity (2-3/day, up to 5) - the operator explicitly chose to review
+# more of the backlog per idle day than that pace alone would suggest.
 BACKLOG_CAP = 15
 
 
@@ -57,8 +56,8 @@ def _judge_and_persist(
     (judged_count, already_judged_count, failures, judged_github_numbers,
     reused_github_numbers) - a caller needs both number lists to know
     every issue that ended up with a judgment this call, whether freshly
-    computed or reused from a prior run (see LOG.md entry 58: reusing an
-    existing judgment, not re-calling Gemini, is deliberate).
+    computed or reused from a prior run. Reusing an existing judgment
+    rather than re-calling Gemini for it is deliberate.
     """
 
     failures: list[tuple[int, str]] = []
@@ -111,11 +110,11 @@ def fetch_and_judge(
     already triaged never enter the pipeline at all, rather than being
     fetched and then discarded.
 
-    `cap`, if given, judges at most that many of the found issues (see
-    LOG.md entry 58: used for the WIP-digest "what's new since digest X"
-    query, bounded like backlog catch-up is). None (the default) judges
-    everything found - the normal 24h window rarely finds enough issues
-    for this label to need bounding.
+    `cap`, if given, judges at most that many of the found issues - used
+    for the WIP-digest "what's new since digest X" query, bounded like
+    backlog catch-up is. None (the default) judges everything found - the
+    normal 24h window rarely finds enough issues for this label to need
+    bounding.
 
     A single issue's judgment failure is logged and skipped rather than
     aborting the whole run - one bad issue should not block the rest of
@@ -189,15 +188,13 @@ def fetch_and_judge_backlog(
     cap: int = BACKLOG_CAP,
 ) -> tuple[PipelineResult, list[int]]:
     """When a poll finds nothing new, look for open issues still carrying
-    `label`, newest-created first, and judge up to `cap` of them (Phase 8
-    idea A - see LOG.md/daily-log.md).
+    `label`, newest-created first, and judge up to `cap` of them.
 
     Candidates are considered regardless of whether they've been judged
-    before (see LOG.md entry 58) - an issue already judged in a prior run
-    is *reused* (its existing judgment is shown, no new Gemini call)
-    rather than excluded, so a still-open real "Needs Triage" issue never
-    silently disappears from the digest just because we computed a
-    judgment for it once.
+    before - an issue already judged in a prior run is *reused* (its
+    existing judgment is shown, no new Gemini call) rather than excluded,
+    so a still-open real "Needs Triage" issue never silently disappears
+    from the digest just because we computed a judgment for it once.
 
     Backlog issues fall outside any time window by definition, so they
     can never be produced by fetch_and_judge - this is a genuinely

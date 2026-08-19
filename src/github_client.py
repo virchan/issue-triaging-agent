@@ -50,7 +50,7 @@ class GitHubClient:
     scikit-learn with no token or GITHUB_TOKEN. create_issue is used
     against the shadow repo with SHADOW_REPO_TOKEN - a separate instance,
     constructed with a different token, per the deliberate read/write
-    credential split (see LOG.md entries 8, 26-27).
+    credential split.
     """
 
     def __init__(self, token: str | None = None, timeout: float = 30.0) -> None:
@@ -78,13 +78,13 @@ class GitHubClient:
     ) -> list[GitHubIssue]:
         """Fetch issues (not pull requests) created in [window_start, window_end).
 
-        A relative time-range query, not a fixed calendar-day match - see
-        LOG.md entry 53 for why: a fixed-day query requires deciding
-        "which day, in which timezone," which is exactly the decision
-        that broke on the first real scheduled run. A range query has no
-        such decision to get wrong. If label is given, only issues
-        carrying that exact label are returned (e.g. "Needs Triage") -
-        quoted in the query since labels can contain spaces.
+        A relative time-range query, not a fixed calendar-day match: a
+        fixed-day query requires deciding "which day, in which timezone,"
+        which is exactly the decision that broke on a real scheduled run.
+        A range query has no such decision to get wrong. If label is
+        given, only issues carrying that exact label are returned (e.g.
+        "Needs Triage") - quoted in the query since labels can contain
+        spaces.
         """
 
         query = (
@@ -129,12 +129,12 @@ class GitHubClient:
     ) -> list[GitHubIssue]:
         """Fetch currently-open issues carrying `label`, newest-created first.
 
-        Used for backlog catch-up (see src.pipeline.fetch_and_judge_backlog,
-        Phase 8 idea A) - when a poll finds nothing new, this looks for
-        open issues carrying `label`. Newest-first per the operator's
-        explicit choice (see LOG.md entry 58) - not oldest-first. Single
-        page (default 100): enough to find a small handful of candidates,
-        not built to page through an entire large backlog.
+        Used for backlog catch-up (see src.pipeline.fetch_and_judge_backlog)
+        - when a poll finds nothing new, this looks for open issues
+        carrying `label`. Newest-first, not oldest-first, per the
+        operator's explicit choice. Single page (default 100): enough to
+        find a small handful of candidates, not built to page through an
+        entire large backlog.
         """
 
         query = f'repo:{owner}/{repo} is:issue is:open label:"{label}"'
@@ -201,7 +201,7 @@ class GitHubClient:
         """Create an issue, returning (issue_number, html_url).
 
         `labels` must already exist in the repo - this does not create
-        them (they're created by hand, see LOG.md entry 57).
+        them (they're created by hand).
         """
 
         payload: dict[str, Any] = {"title": title, "body": body}

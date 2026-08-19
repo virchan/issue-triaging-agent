@@ -283,11 +283,11 @@ def create_digest(
     """Create a new digest row for [window_start, window_end).
 
     No uniqueness constraint on the window: window_start/window_end are a
-    fixed lookback from "now" (see LOG.md entry 56), so nothing about the
-    schema requires them to be distinct across runs. A double-invocation
-    just produces a second, overlapping window rather than a duplicate -
-    has_judgment already prevents re-judging any issue that window
-    happens to re-fetch.
+    fixed lookback from "now", so nothing about the schema requires them
+    to be distinct across runs. A double-invocation just produces a
+    second, overlapping window rather than a duplicate - has_judgment
+    already prevents re-judging any issue that window happens to
+    re-fetch.
     """
 
     with connection.cursor() as cursor:
@@ -496,12 +496,12 @@ def get_recent_reviewed_judgments(
 @dataclass
 class GoldenExample:
     """One real, reviewed judgment, traceable back to its source issue and
-    digest - the unit the golden evaluation set (Step 22) is built from.
+    digest - the unit the golden evaluation set is built from.
 
     Distinct from ReviewedJudgment (few-shot context, recent-N, no
     traceability fields needed) even though the underlying data
     overlaps - these two serve different purposes and are expected to
-    diverge further once Step 23 defines the correctness rubric.
+    diverge further as the correctness rubric evolves.
     """
 
     github_number: int
@@ -511,8 +511,7 @@ class GoldenExample:
     correction_text: str | None
     digest_date: dt.date
     """Pacific calendar date the digest's window ended on - a display
-    label derived from window_end, not part of the digest's identity.
-    See LOG.md entry 53."""
+    label derived from window_end, not part of the digest's identity."""
 
 
 def get_all_reviewed_judgments(
@@ -574,8 +573,7 @@ class JudgmentAuditEntry:
     confidence: float
     digest_date: dt.date | None
     """Pacific calendar date the digest's window ended on - a display
-    label derived from window_end, not part of the digest's identity.
-    See LOG.md entry 53."""
+    label derived from window_end, not part of the digest's identity."""
     digest_state: str | None
     correction_text: str | None
 
@@ -627,8 +625,8 @@ def get_judgment_audit_trail(
 class UnreviewedDigest:
     """A published digest not yet marked reviewed - a candidate to check
     for correction capture (the issue may or may not be closed yet), and
-    (see LOG.md entry 58) to detect whether the daily job should treat
-    this run as "still working on a WIP digest" rather than a fresh poll.
+    to detect whether the daily job should treat this run as "still
+    working on a WIP digest" rather than a fresh poll.
     """
 
     digest_id: int
@@ -644,9 +642,9 @@ def get_unreviewed_digests(
     """Fetch all published-but-not-yet-reviewed digests, oldest first.
 
     The last element, if any, is the most recently created WIP digest -
-    used by run_daily_cycle (LOG.md entry 58) both to detect that a WIP
-    digest exists at all, and as the window_start for "what's new since
-    then" once one does.
+    used by run_daily_cycle both to detect that a WIP digest exists at
+    all, and as the window_start for "what's new since then" once one
+    does.
     """
 
     with connection.cursor() as cursor:

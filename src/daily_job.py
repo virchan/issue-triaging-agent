@@ -7,7 +7,7 @@ from typing import Any
 import psycopg
 
 from src.corrections import CaptureResult, capture_corrections
-from src.db import get_unreviewed_digests
+from src.db import UnreviewedDigest, get_unreviewed_digests
 from src.digest import DigestContent, build_digest, publish_digest
 from src.gemini_client import GeminiJudge
 from src.github_client import GitHubClient
@@ -19,14 +19,14 @@ from src.pipeline import (
 )
 
 # Every poll looks back this far from "now", regardless of when the
-# previous run happened - see LOG.md entry 56. Matches the daily 09:00
-# PDT cadence: a shorter window would leave a permanent gap between runs.
-# Only used when no WIP digest exists (see entry 58) - a WIP digest's own
-# window_end is used instead when one does.
+# previous run happened. Matches the daily 09:00 PDT cadence: a shorter
+# window would leave a permanent gap between runs. Only used when no WIP
+# digest exists - a WIP digest's own window_end is used instead when one
+# does.
 WINDOW_DURATION = dt.timedelta(hours=24)
 
-# Attached to every digest issue created - see LOG.md entry 57. Must
-# already exist in the shadow repo (created by hand, not by this code).
+# Attached to every digest issue created. Must already exist in the
+# shadow repo (created by hand, not by this code).
 DIGEST_LABEL = "daily digest"
 MANUALLY_TRIGGERED_LABEL = "manually-triggered"
 AGENT_TRIGGERED_LABEL = "triggered-by:agent"
@@ -44,7 +44,7 @@ class DailyCycleResult:
     reviews: list[CaptureResult] = field(default_factory=list)
     backlog: PipelineResult | None = None
     """Set only when the window found nothing new and a backlog catch-up
-    ran (Phase 8 idea A - see LOG.md)."""
+    ran."""
 
 
 def run_daily_cycle(
@@ -63,51 +63,68 @@ def run_daily_cycle(
     """Run the full state machine: fetched -> filtered/judged -> digested
     -> published -> reviewed/corrected -> closed.
 
-    The poll window is computed here, not passed in by the caller - see
-    LOG.md entries 53/56/58. window_end is always now. window_start
-    depends on whether a WIP digest exists - see below.
+    The poll window is computed here, not passed in by the caller.
+    window_end is always now. window_start depends on whether a WIP
+    digest exists - see below.
 
-    Forward half (this window's issues through publishing a new digest)
-    runs first, then every previously-published digest not yet marked
-    reviewed is checked - capture_corrections is a no-op for any whose
-    GitHub issue isn't closed yet, so calling it here is always safe,
-    not just when a digest is known to be ready. The same
-    get_unreviewed_digests call is reused for both purposes (see entry
-    58) - it's fetched once, before this run's own digest exists, so the
-    backward pass never tries to check a digest this same call just
-    created.
+    Backward half (correction capture on previously-published digests)
+    runs first, not last: running it last would mean a digest the
+    operator had already closed before this run even started is still
+    treated as "still open" for the WIP check below, since our own DB
+    hasn't caught up yet within this same call. capture_corrections is a
+    no-op for any whose GitHub issue isn't closed yet, so calling it
+    unconditionally here is always safe. get_unreviewed_digests is called
+    once, before this run's own digest exists, so the backward pass never
+    tries to check a digest this same call just created.
 
-    WIP-digest handling (LOG.md entry 58): if any previously-published
-    digest is still unreviewed (its GitHub issue hasn't been closed
-    yet), the most recently created one is treated as a WIP digest -
-    window_start becomes its window_end (a "what's new since you
-    started this" query, capped at BACKLOG_CAP), and backlog catch-up is
-    skipped entirely: the point is showing what's new since you opened
-    it, not padding with more backlog while you're still mid-review. The
-    published digest also gets a reminder line pointing back at it.
+    WIP-digest handling: of the digests that are genuinely still open
+    *after* the backward pass just ran (per each capture_corrections
+    call's live GitHub check, not the pre-pass DB snapshot), the most
+    recently created one is treated as a WIP digest - window_start
+    becomes its window_end (a "what's new since you started this" query,
+    capped at BACKLOG_CAP), and backlog catch-up is skipped entirely: the
+    point is showing what's new since you opened it, not padding with
+    more backlog while you're still mid-review. The published digest also
+    gets a reminder line pointing back at it.
 
     Only when no WIP digest exists does the normal fixed WINDOW_DURATION
-    lookback apply, and only then can backlog catch-up run (Phase 8 idea
-    A - see LOG.md) if that window finds nothing new: older, still-open
-    issues carrying `label`, newest-created first, judged up to
-    BACKLOG_CAP regardless of whether each one has been judged before -
-    reusing an existing judgment rather than excluding it, so a still-open
-    real "Needs Triage" issue never silently disappears from view just
-    because it was judged once already (see entry 58). Requires a real
-    `label` - there's no well-defined "backlog" without one.
+    lookback apply, and only then can backlog catch-up run if that window
+    finds nothing new: older, still-open issues carrying `label`,
+    newest-created first, judged up to BACKLOG_CAP regardless of whether
+    each one has been judged before - reusing an existing judgment rather
+    than excluding it, so a still-open real "Needs Triage" issue never
+    silently disappears from view just because it was judged once
+    already. Requires a real `label` - there's no well-defined "backlog"
+    without one.
 
     github_client must be read-only (scikit-learn); shadow_client must
     be authenticated with SHADOW_REPO_TOKEN (shadow repo writes).
 
-    `manually_triggered` (see LOG.md entry 57) is True only when this
-    call came from app.py's POST /trigger (the on-demand path), never
-    from the scheduled Cloud Run Job - it controls whether the published
-    digest gets MANUALLY_TRIGGERED_LABEL or AGENT_TRIGGERED_LABEL
-    alongside DIGEST_LABEL.
+    `manually_triggered` is True only when this call came from app.py's
+    POST /trigger (the on-demand path), never from the scheduled Cloud
+    Run Job - it controls whether the published digest gets
+    MANUALLY_TRIGGERED_LABEL or AGENT_TRIGGERED_LABEL alongside
+    DIGEST_LABEL.
     """
 
     unreviewed_digests = get_unreviewed_digests(connection)
-    most_recent_wip = unreviewed_digests[-1] if unreviewed_digests else None
+
+    reviews: list[CaptureResult] = []
+    still_open_digests: list[UnreviewedDigest] = []
+    for unreviewed in unreviewed_digests:
+        review = capture_corrections(
+            connection,
+            shadow_client,
+            digest_id=unreviewed.digest_id,
+            shadow_owner=unreviewed.shadow_owner,
+            shadow_repo=unreviewed.shadow_repo,
+            shadow_issue_number=unreviewed.shadow_issue_number,
+        )
+        reviews.append(review)
+        if review.issue_still_open:
+            still_open_digests.append(unreviewed)
+
+    most_recent_wip = still_open_digests[-1] if still_open_digests else None
 
     window_end = dt.datetime.now(dt.UTC)
     window_start = (
@@ -168,19 +185,6 @@ def run_daily_cycle(
         shadow_owner=shadow_owner,
         shadow_repo=shadow_repo,
     )
-
-    reviews: list[CaptureResult] = []
-    for unreviewed in unreviewed_digests:
-        reviews.append(
-            capture_corrections(
-                connection,
-                shadow_client,
-                digest_id=unreviewed.digest_id,
-                shadow_owner=unreviewed.shadow_owner,
-                shadow_repo=unreviewed.shadow_repo,
-                shadow_issue_number=unreviewed.shadow_issue_number,
-            )
-        )
 
     return DailyCycleResult(
         pipeline=pipeline_result,

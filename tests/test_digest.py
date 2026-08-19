@@ -51,9 +51,9 @@ def test_format_digest_body_handles_empty_day_without_label() -> None:
 
 
 def test_format_digest_body_names_the_label_when_given() -> None:
-    """Regression test for a real gap found during real operation (see
-    LOG.md, daily-log.md): the message previously implied no activity at
-    all, when the query is actually scoped to one label."""
+    """Regression test for a real gap found during real operation: the
+    message previously implied no activity at all, when the query is
+    actually scoped to one label."""
 
     body = format_digest_body(dt.date(2026, 8, 4), [], label="Needs Triage")
     assert 'No newly created issue(s) labelled "Needs Triage" were found' in body
@@ -86,13 +86,13 @@ def test_format_digest_body_marks_spam_visibly() -> None:
 
 
 def test_format_digest_body_never_creates_a_clickable_cross_reference() -> None:
-    """Regression test for the real cross-reference incident (see LOG.md).
+    """Regression test for a real cross-reference incident.
 
     A markdown link with the raw scikit-learn URL as its target creates a
     visible GitHub cross-reference on the target issue - confirmed
     empirically. This must never reappear. Nor may a bare "#NNN" or
-    "owner/repo#NNN" - see LOG.md entry 58 for why the reference format
-    changed to a backtick-wrapped "owner/repo/NNN".
+    "owner/repo#NNN" - the reference format is a backtick-wrapped
+    "owner/repo/NNN" instead, which avoids both.
     """
 
     body = format_digest_body(dt.date(2026, 8, 4), [_judged_issue(34649)])
@@ -104,9 +104,9 @@ def test_format_digest_body_never_creates_a_clickable_cross_reference() -> None:
 
 
 def test_format_digest_body_renders_backlog_only_section() -> None:
-    """Phase 8 idea A (see LOG.md/daily-log.md): when nothing new was
-    found, older backlog issues get reviewed and shown instead - as a
-    clearly distinct section, not silently merged with "new"."""
+    """Backlog catch-up: when nothing new was found, older backlog
+    issues get reviewed and shown instead - as a clearly distinct
+    section, not silently merged with "new"."""
 
     body = format_digest_body(
         dt.date(2026, 8, 15),
@@ -144,10 +144,10 @@ def test_format_digest_body_omits_wip_reminder_by_default() -> None:
 
 
 def test_format_digest_body_includes_wip_reminder_when_given() -> None:
-    """Phase 8 idea A follow-up (see LOG.md entry 58): a still-open prior
-    digest gets a reminder line pointing back at it, using a real
-    clickable "#NNN" - unlike scikit-learn references, this points at
-    another issue in the *same* repo, where autolinking is desired."""
+    """A still-open prior digest gets a reminder line pointing back at
+    it, using a real clickable "#NNN" - unlike scikit-learn references,
+    this points at another issue in the *same* repo, where autolinking
+    is desired."""
 
     body = format_digest_body(
         dt.date(2026, 8, 17), [_judged_issue(1)], wip_digest_issue_number=12

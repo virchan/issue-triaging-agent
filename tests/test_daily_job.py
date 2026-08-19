@@ -123,9 +123,9 @@ def test_run_daily_cycle_with_no_unreviewed_digests(
 def test_run_daily_cycle_uses_a_fixed_lookback_window(
     mocker: Any, clients_and_connection: tuple[Any, Any, Any, Any]
 ) -> None:
-    """Regression test for the watermark-chain redesign (see LOG.md entry
-    56): with no WIP digest, window_start is WINDOW_DURATION back from
-    "now", not derived from any previous digest."""
+    """Regression test for the watermark-chain redesign: with no WIP
+    digest, window_start is WINDOW_DURATION back from "now", not
+    derived from any previous digest."""
 
     github_client, shadow_client, gemini_judge, connection = clients_and_connection
 
@@ -165,7 +165,7 @@ def test_run_daily_cycle_uses_a_fixed_lookback_window(
     assert build_kwargs["wip_digest_issue_number"] is None
 
 
-# --- Backlog catch-up orchestration (Phase 8 idea A - see LOG.md/daily-log.md) ---
+# --- Backlog catch-up orchestration ---
 
 
 def test_run_daily_cycle_does_not_trigger_backlog_when_new_issues_found(
@@ -278,7 +278,7 @@ def test_run_daily_cycle_does_not_trigger_backlog_without_a_label(
     assert result.backlog is None
 
 
-# --- Digest labels (LOG.md entries 57, 58) ---
+# --- Digest labels ---
 
 
 def test_run_daily_cycle_applies_agent_triggered_label_by_default(
@@ -354,7 +354,7 @@ def test_run_daily_cycle_adds_manually_triggered_label_when_set(
     ]
 
 
-# --- WIP-digest handling (LOG.md entry 58) ---
+# --- WIP-digest handling ---
 
 
 def test_run_daily_cycle_uses_most_recent_wip_window_end_as_start(
@@ -380,7 +380,13 @@ def test_run_daily_cycle_uses_most_recent_wip_window_end_as_start(
         return_value=DigestContent(digest_id=5, title="t", body="b", issue_count=0),
     )
     mocker.patch("src.daily_job.publish_digest", return_value=None)
-    mocker.patch("src.daily_job.capture_corrections")
+    mocker.patch(
+        "src.daily_job.capture_corrections",
+        side_effect=[
+            CaptureResult(issue_still_open=True, already_reviewed=False),
+            CaptureResult(issue_still_open=True, already_reviewed=False),
+        ],
+    )
 
     run_daily_cycle(
         github_client=github_client,
@@ -400,6 +406,68 @@ def test_run_daily_cycle_uses_most_recent_wip_window_end_as_start(
     backlog_mock.assert_not_called()
     build_kwargs = build_digest_mock.call_args.kwargs
     assert build_kwargs["wip_digest_issue_number"] == 12
+
+
+def test_run_daily_cycle_excludes_a_wip_digest_closed_before_this_run(
+    mocker: Any, clients_and_connection: tuple[Any, Any, Any, Any]
+) -> None:
+    """Regression test for a real bug found on the first live day under
+    this design: the operator closed digest #13 before this run started,
+    but the reminder still said "Still working on #13?" - because the old
+    code determined the WIP digest from get_unreviewed_digests'
+    pre-backward-pass snapshot, not from whether capture_corrections'
+    live GitHub check found it actually still open. Backward pass must
+    run first, and WIP detection must use
+    its result, not the stale pre-pass list."""
+
+    github_client, shadow_client, gemini_judge, connection = clients_and_connection
+
+    closed_digest = _unreviewed(3, 13)
+    mocker.patch("src.daily_job.get_unreviewed_digests", return_value=[closed_digest])
+    capture_mock = mocker.patch(
+        "src.daily_job.capture_corrections",
+        return_value=CaptureResult(
+            issue_still_open=False, already_reviewed=False, captured=1
+        ),
+    )
+    fetch_and_judge_mock = mocker.patch(
+        "src.daily_job.fetch_and_judge", return_value=_EMPTY
+    )
+    backlog_mock = mocker.patch(
+        "src.daily_job.fetch_and_judge_backlog", return_value=(_EMPTY, [])
+    )
+    build_digest_mock = mocker.patch(
+        "src.daily_job.build_digest",
+        return_value=DigestContent(digest_id=5, title="t", body="b", issue_count=0),
+    )
+    mocker.patch("src.daily_job.publish_digest", return_value=None)
+
+    result = run_daily_cycle(
+        github_client=github_client,
+        shadow_client=shadow_client,
+        gemini_judge=gemini_judge,
+        connection=connection,
+        source_owner="scikit-learn",
+        source_repo="scikit-learn",
+        shadow_owner="virchan",
+        shadow_repo="issue-triaging-agent-digests",
+        label="Needs Triage",
+    )
+
+    capture_mock.assert_called_once_with(
+        connection,
+        shadow_client,
+        digest_id=3,
+        shadow_owner="virchan",
+        shadow_repo="issue-triaging-agent-digests",
+        shadow_issue_number=13,
+    )
+    fetch_kwargs = fetch_and_judge_mock.call_args.kwargs
+    assert fetch_kwargs["window_end"] - fetch_kwargs["window_start"] == WINDOW_DURATION
+    assert fetch_kwargs["cap"] is None
+    backlog_mock.assert_called_once()
+    assert build_digest_mock.call_args.kwargs["wip_digest_issue_number"] is None
+    assert result.reviews[0].captured == 1
 
 
 def test_run_daily_cycle_does_not_skip_backlog_when_no_wip_exists(
@@ -441,8 +509,8 @@ def test_run_daily_cycle_reuses_unreviewed_digests_for_the_backward_pass(
     mocker: Any, clients_and_connection: tuple[Any, Any, Any, Any]
 ) -> None:
     """get_unreviewed_digests should only be called once per cycle - the
-    same list drives both WIP detection and correction capture (see
-    LOG.md entry 58), rather than querying twice."""
+    same list drives both WIP detection and correction capture, rather
+    than querying twice."""
 
     github_client, shadow_client, gemini_judge, connection = clients_and_connection
 

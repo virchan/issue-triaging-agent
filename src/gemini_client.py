@@ -117,7 +117,7 @@ class GeminiJudge:
 
         recent_examples (see src.db.get_recent_reviewed_judgments) are
         injected as few-shot context - real past corrections and
-        confirmations, not model fine-tuning (see LOG.md).
+        confirmations, not model fine-tuning.
 
         Raises GeminiResponseError if the model suggests a label outside
         known_labels - this is verified deterministically, not trusted

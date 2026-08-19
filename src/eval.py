@@ -25,10 +25,9 @@ class EvalOutcome(str, Enum):
     free text (e.g. "#34648 should be labelled as \"array API\"."), not
     a structured expected answer, so there's no automated way to confirm
     the new judgment actually satisfies the correction's intent. Flagged
-    for human review rather than faked as a pass - see design-plan.md
-    §8's call for "an explicit rubric for partial credit vs. failure"
-    instead of an exact-match-only comparison that can't represent this
-    case honestly.
+    for human review rather than faked as a pass - an exact-match-only
+    comparison can't represent this case honestly, so it needs an
+    explicit rubric for partial credit vs. failure instead.
     """
 
     PASS = "pass"

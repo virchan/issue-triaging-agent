@@ -3,8 +3,8 @@ from __future__ import annotations
 from src.github_client import GitHubIssue
 
 # Known automation accounts on the target repo that don't present as
-# GitHub-flagged bot accounts (see LOG.md entry 8: scikit-learn-bot's
-# `user.type` is "User", not "Bot", so it can't be caught by type alone).
+# GitHub-flagged bot accounts: scikit-learn-bot's `user.type` is "User",
+# not "Bot", so it can't be caught by type alone.
 KNOWN_BOT_LOGINS = frozenset({"scikit-learn-bot"})
 
 
