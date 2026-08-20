@@ -7,7 +7,11 @@ from typing import Any
 import psycopg
 
 from src.corrections import CaptureResult, capture_corrections
-from src.db import UnreviewedDigest, get_unreviewed_digests
+from src.db import (
+    UnreviewedDigest,
+    get_recent_reviewed_judgments,
+    get_unreviewed_digests,
+)
 from src.digest import DigestContent, build_digest, publish_digest
 from src.gemini_client import GeminiJudge
 from src.github_client import GitHubClient
@@ -83,7 +87,10 @@ def run_daily_cycle(
     no-op for any whose GitHub issue isn't closed yet, so calling it
     unconditionally here is always safe. get_unreviewed_digests is called
     once, before this run's own digest exists, so the backward pass never
-    tries to check a digest this same call just created.
+    tries to check a digest this same call just created. A correction can
+    now trigger an actual re-judge (see src.corrections), so this pass
+    also needs known_labels/recent_examples - fetched once for the whole
+    pass, not once per digest.
 
     WIP-digest handling: of the digests that are genuinely still open
     *after* the backward pass just ran (per each capture_corrections
@@ -119,18 +126,30 @@ def run_daily_cycle(
 
     reviews: list[CaptureResult] = []
     still_open_digests: list[UnreviewedDigest] = []
-    for unreviewed in unreviewed_digests:
-        review = capture_corrections(
-            connection,
-            shadow_client,
-            digest_id=unreviewed.digest_id,
-            shadow_owner=unreviewed.shadow_owner,
-            shadow_repo=unreviewed.shadow_repo,
-            shadow_issue_number=unreviewed.shadow_issue_number,
-        )
-        reviews.append(review)
-        if review.issue_still_open:
-            still_open_digests.append(unreviewed)
+    if unreviewed_digests:
+        # Fetched once for the whole backward pass, not once per digest -
+        # a correction-triggered re-judge (see src.corrections) needs the
+        # same real, current labels and few-shot context every judge()
+        # call already uses.
+        known_labels = github_client.fetch_labels(source_owner, source_repo)
+        recent_examples = get_recent_reviewed_judgments(connection)
+
+        for unreviewed in unreviewed_digests:
+            review = capture_corrections(
+                connection,
+                shadow_client,
+                gemini_judge,
+                digest_id=unreviewed.digest_id,
+                digest_window_end=unreviewed.window_end,
+                shadow_owner=unreviewed.shadow_owner,
+                shadow_repo=unreviewed.shadow_repo,
+                shadow_issue_number=unreviewed.shadow_issue_number,
+                known_labels=known_labels,
+                recent_examples=recent_examples,
+            )
+            reviews.append(review)
+            if review.issue_still_open:
+                still_open_digests.append(unreviewed)
 
     most_recent_wip = still_open_digests[-1] if still_open_digests else None
 

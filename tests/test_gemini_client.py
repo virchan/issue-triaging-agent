@@ -309,3 +309,115 @@ def test_judge_without_recent_examples_omits_the_section(
 
     prompt = client.models.generate_content.call_args.kwargs["contents"]
     assert "Recent reviewed judgments" not in prompt
+
+
+PREVIOUS_JUDGMENT = IssueJudgment(
+    suggested_label="module:preprocessing",
+    is_spam=False,
+    summary="Old summary.",
+    priority="medium",
+    rationale="Old rationale.",
+    confidence=0.8,
+)
+
+
+def test_judge_with_correction_returns_revised_judgment(
+    mocker: Any, client: Any, judge: GeminiJudge
+) -> None:
+    client.models.generate_content.return_value = mocker.Mock(
+        text=response_text(suggested_label="Bug", summary="Revised summary.")
+    )
+
+    judgment = judge.judge_with_correction(
+        title="DictionaryLearning breaks Pipeline.predict",
+        body="Steps to reproduce...",
+        previous_judgment=PREVIOUS_JUDGMENT,
+        correction_text="Should also carry the float32 label.",
+        known_labels=KNOWN_LABELS,
+    )
+
+    assert judgment.suggested_label == "Bug"
+    assert judgment.summary == "Revised summary."
+
+
+def test_judge_with_correction_sends_previous_judgment_and_correction_in_prompt(
+    mocker: Any, client: Any, judge: GeminiJudge
+) -> None:
+    client.models.generate_content.return_value = mocker.Mock(text=response_text())
+
+    judge.judge_with_correction(
+        title="DictionaryLearning breaks Pipeline.predict",
+        body="full traceback here",
+        previous_judgment=PREVIOUS_JUDGMENT,
+        correction_text="Should also carry the float32 label.",
+        known_labels=KNOWN_LABELS,
+    )
+
+    prompt = client.models.generate_content.call_args.kwargs["contents"]
+    assert "DictionaryLearning breaks Pipeline.predict" in prompt
+    assert "full traceback here" in prompt
+    assert "Should also carry the float32 label." in prompt
+    assert '"module:preprocessing"' in prompt  # previous judgment, JSON-dumped
+    assert "Old rationale." in prompt
+
+
+def test_judge_with_correction_rejects_blank_title(
+    client: Any, judge: GeminiJudge
+) -> None:
+    with pytest.raises(ValueError, match="title is required"):
+        judge.judge_with_correction(
+            title="   ",
+            body=None,
+            previous_judgment=PREVIOUS_JUDGMENT,
+            correction_text="fix this",
+            known_labels=KNOWN_LABELS,
+        )
+
+    client.models.generate_content.assert_not_called()
+
+
+def test_judge_with_correction_rejects_blank_correction(
+    client: Any, judge: GeminiJudge
+) -> None:
+    with pytest.raises(ValueError, match="correction is required"):
+        judge.judge_with_correction(
+            title="Some issue",
+            body=None,
+            previous_judgment=PREVIOUS_JUDGMENT,
+            correction_text="   ",
+            known_labels=KNOWN_LABELS,
+        )
+
+    client.models.generate_content.assert_not_called()
+
+
+def test_judge_with_correction_rejects_label_outside_known_list(
+    mocker: Any, client: Any, judge: GeminiJudge
+) -> None:
+    client.models.generate_content.return_value = mocker.Mock(
+        text=response_text(suggested_label="Totally Invented Label")
+    )
+
+    with pytest.raises(GeminiResponseError, match="unknown label"):
+        judge.judge_with_correction(
+            title="Some issue",
+            body=None,
+            previous_judgment=PREVIOUS_JUDGMENT,
+            correction_text="fix this",
+            known_labels=KNOWN_LABELS,
+        )
+
+
+def test_judge_with_correction_translates_provider_failure(
+    client: Any, judge: GeminiJudge
+) -> None:
+    client.models.generate_content.side_effect = RuntimeError("provider details")
+
+    with pytest.raises(GeminiUnavailableError, match="could not complete"):
+        judge.judge_with_correction(
+            title="Some issue",
+            body=None,
+            previous_judgment=PREVIOUS_JUDGMENT,
+            correction_text="fix this",
+            known_labels=KNOWN_LABELS,
+        )

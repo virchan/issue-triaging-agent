@@ -379,19 +379,27 @@ def mark_digest_reviewed(connection: psycopg.Connection[Any], digest_id: int) ->
 
 def get_judgment_id_for_issue_number(
     connection: psycopg.Connection[Any],
-    digest_id: int,
     github_number: int,
 ) -> int | None:
-    """Look up the judgment, within a specific digest, for a referenced issue number."""
+    """Look up the judgment for a referenced issue number.
+
+    Not scoped to a specific digest: a judgment's digest_id is
+    reassigned every time backlog catch-up re-surfaces it into a newer
+    digest, so an older, already-closed digest's own link can no longer
+    be trusted to find it by the time that digest's comments are
+    processed - this looks the judgment up directly by github_number
+    instead. Assumes a single source repo, consistent with the rest of
+    this codebase.
+    """
 
     with connection.cursor() as cursor:
         cursor.execute(
             """
             SELECT j.id FROM judgments j
             JOIN issues i ON i.id = j.issue_id
-            WHERE j.digest_id = %s AND i.github_number = %s
+            WHERE i.github_number = %s
             """,
-            (digest_id, github_number),
+            (github_number,),
         )
         row = cursor.fetchone()
         return row[0] if row is not None else None
@@ -400,9 +408,12 @@ def get_judgment_id_for_issue_number(
 def save_correction(
     connection: psycopg.Connection[Any],
     judgment_id: int,
+    digest_id: int,
     github_comment_id: int,
     comment_body: str,
     github_created_at: dt.datetime,
+    *,
+    superseded: bool = False,
 ) -> int:
     """Insert a correction, or return the existing row's id if already captured.
 
@@ -410,19 +421,32 @@ def save_correction(
     correct several issues at once (one bullet per issue), so a single
     comment legitimately produces several correction rows; only a retry
     of the exact same (comment, judgment) pair is a duplicate.
+
+    digest_id records which thread this correction came from, and
+    superseded marks whether it's the currently-authoritative correction
+    for judgment_id or one overridden by a newer thread's correction for
+    the same issue - see mark_corrections_superseded.
     """
 
     with connection.cursor() as cursor:
         cursor.execute(
             """
             INSERT INTO corrections (
-                judgment_id, github_comment_id, comment_body, github_created_at
+                judgment_id, digest_id, github_comment_id, comment_body,
+                github_created_at, superseded
             )
-            VALUES (%s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s)
             ON CONFLICT (github_comment_id, judgment_id) DO NOTHING
             RETURNING id
             """,
-            (judgment_id, github_comment_id, comment_body, github_created_at),
+            (
+                judgment_id,
+                digest_id,
+                github_comment_id,
+                comment_body,
+                github_created_at,
+                superseded,
+            ),
         )
         row = cursor.fetchone()
         if row is not None:
@@ -435,6 +459,136 @@ def save_correction(
         existing = cursor.fetchone()
         assert existing is not None
         return existing[0]
+
+
+def mark_corrections_superseded(
+    connection: psycopg.Connection[Any],
+    judgment_id: int,
+) -> None:
+    """Flip any existing authoritative correction(s) for a judgment to
+    superseded - called right before a new, more-recently-created
+    thread's correction becomes authoritative for the same judgment.
+
+    Deliberately does not commit: this is one step of a single logical
+    "a correction became authoritative" event, together with
+    save_correction and update_judgment - all three should land or roll
+    back together, not risk a crash between them leaving the old
+    correction marked superseded with no new one to replace it.
+    """
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "UPDATE corrections SET superseded = TRUE WHERE judgment_id = %s AND superseded = FALSE",
+            (judgment_id,),
+        )
+
+
+def get_authoritative_correction_digest(
+    connection: psycopg.Connection[Any],
+    judgment_id: int,
+) -> tuple[int, dt.datetime] | None:
+    """The (shadow_issue_number, window_end) of the digest holding the
+    current authoritative (non-superseded) correction for this judgment,
+    if one exists - used to decide whether a new correction is for the
+    most-recently-created thread referencing this issue, or a stale one
+    that should be marked superseded instead."""
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT d.shadow_issue_number, d.window_end
+            FROM corrections c
+            JOIN digests d ON d.id = c.digest_id
+            WHERE c.judgment_id = %s AND c.superseded = FALSE
+            ORDER BY d.window_end DESC
+            LIMIT 1
+            """,
+            (judgment_id,),
+        )
+        row = cursor.fetchone()
+        return (row[0], row[1]) if row is not None else None
+
+
+@dataclass
+class RejudgeContext:
+    """What's needed to re-judge an issue given a correction: its real
+    content and its current judgment."""
+
+    title: str
+    body: str | None
+    judgment: IssueJudgment
+
+
+def get_rejudge_context(
+    connection: psycopg.Connection[Any],
+    judgment_id: int,
+) -> RejudgeContext | None:
+    """Fetch a judgment's underlying issue text and current judgment, for
+    passing to a correction-triggered re-judge."""
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT i.title, i.body, j.suggested_label, j.is_spam, j.summary,
+                   j.priority, j.rationale, j.confidence
+            FROM judgments j
+            JOIN issues i ON i.id = j.issue_id
+            WHERE j.id = %s
+            """,
+            (judgment_id,),
+        )
+        row = cursor.fetchone()
+
+    if row is None:
+        return None
+
+    return RejudgeContext(
+        title=row[0],
+        body=row[1],
+        judgment=IssueJudgment(
+            suggested_label=row[2],
+            is_spam=row[3],
+            summary=row[4],
+            priority=row[5],
+            rationale=row[6],
+            confidence=row[7],
+        ),
+    )
+
+
+def update_judgment(
+    connection: psycopg.Connection[Any],
+    judgment_id: int,
+    judgment: IssueJudgment,
+) -> None:
+    """Overwrite an existing judgment in place - used when a correction
+    triggers a re-judge. corrections remains the audit trail of what
+    changed and why; this keeps only the judgment's current state, not a
+    history of every revision.
+
+    Deliberately does not commit - see mark_corrections_superseded for
+    why: this, save_correction, and mark_corrections_superseded are one
+    logical event and should land together.
+    """
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            UPDATE judgments
+            SET suggested_label = %s, is_spam = %s, summary = %s,
+                priority = %s, rationale = %s, confidence = %s
+            WHERE id = %s
+            """,
+            (
+                judgment.suggested_label,
+                judgment.is_spam,
+                judgment.summary,
+                judgment.priority,
+                judgment.rationale,
+                judgment.confidence,
+                judgment_id,
+            ),
+        )
 
 
 @dataclass
@@ -459,6 +613,13 @@ def get_recent_reviewed_judgments(
     Includes both corrected and implicitly-confirmed judgments (see
     ReviewedJudgment) - both are real signal about past accuracy, not
     just corrections. Ordered most-recent-first by digest date.
+
+    A judgment can have more than one correction row now (superseded
+    ones from stale threads - see mark_corrections_superseded), so the
+    join is restricted to the non-superseded one to avoid surfacing a
+    judgment twice with conflicting-looking corrections, or surfacing a
+    stale correction instead of the one that actually shaped the current
+    judgment.
     """
 
     with connection.cursor() as cursor:
@@ -469,7 +630,7 @@ def get_recent_reviewed_judgments(
             FROM judgments j
             JOIN issues i ON i.id = j.issue_id
             JOIN digests d ON d.id = j.digest_id
-            LEFT JOIN corrections c ON c.judgment_id = j.id
+            LEFT JOIN corrections c ON c.judgment_id = j.id AND c.superseded = FALSE
             WHERE d.state = 'reviewed'
             ORDER BY d.window_end DESC, j.id DESC
             LIMIT %s

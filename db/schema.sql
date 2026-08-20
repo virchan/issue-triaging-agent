@@ -57,12 +57,24 @@ CREATE TABLE IF NOT EXISTS judgments (
 -- issues at once (one bullet per issue), so the uniqueness is on the
 -- (comment, judgment) pair, not the comment alone - a comment can
 -- legitimately produce more than one correction row.
+--
+-- digest_id records which thread a correction came from - needed because
+-- the same real issue can be re-surfaced into a newer digest (backlog
+-- catch-up) while an older digest referencing it is still open, so more
+-- than one thread can carry a correction for the same judgment over
+-- time. superseded distinguishes which one is authoritative: when a
+-- correction arrives on a thread that isn't the most recently created
+-- one referencing that issue, it's recorded but marked superseded - not
+-- used to re-judge, not surfaced as few-shot context - rather than
+-- silently dropped.
 CREATE TABLE IF NOT EXISTS corrections (
     id                  SERIAL PRIMARY KEY,
     judgment_id         INTEGER NOT NULL REFERENCES judgments (id),
+    digest_id           INTEGER NOT NULL REFERENCES digests (id),
     github_comment_id   BIGINT NOT NULL,
     comment_body        TEXT NOT NULL,
     github_created_at   TIMESTAMPTZ NOT NULL,
     captured_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+    superseded          BOOLEAN NOT NULL DEFAULT FALSE,
     UNIQUE (github_comment_id, judgment_id)
 );

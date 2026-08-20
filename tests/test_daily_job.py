@@ -52,6 +52,8 @@ def test_run_daily_cycle_runs_forward_pipeline_and_checks_unreviewed_digests(
 
     unreviewed = [_unreviewed(3, 6), _unreviewed(4, 7)]
     mocker.patch("src.daily_job.get_unreviewed_digests", return_value=unreviewed)
+    github_client.fetch_labels.return_value = ["Bug"]
+    mocker.patch("src.daily_job.get_recent_reviewed_judgments", return_value=[])
 
     capture_results = [
         CaptureResult(issue_still_open=True, already_reviewed=False),
@@ -82,6 +84,8 @@ def test_run_daily_cycle_runs_forward_pipeline_and_checks_unreviewed_digests(
     first_call = capture_mock.call_args_list[0]
     assert first_call.kwargs["digest_id"] == 3
     assert first_call.kwargs["shadow_issue_number"] == 6
+    assert first_call.kwargs["digest_window_end"] == unreviewed[0].window_end
+    assert first_call.kwargs["known_labels"] == ["Bug"]
     second_call = capture_mock.call_args_list[1]
     assert second_call.kwargs["digest_id"] == 4
     assert second_call.kwargs["shadow_issue_number"] == 7
@@ -414,6 +418,8 @@ def test_run_daily_cycle_uses_most_recent_wip_window_end_as_start(
     mocker.patch(
         "src.daily_job.get_unreviewed_digests", return_value=[older_wip, newer_wip]
     )
+    github_client.fetch_labels.return_value = ["Bug"]
+    mocker.patch("src.daily_job.get_recent_reviewed_judgments", return_value=[])
     fetch_and_judge_mock = mocker.patch(
         "src.daily_job.fetch_and_judge", return_value=_EMPTY
     )
@@ -467,6 +473,8 @@ def test_run_daily_cycle_excludes_a_wip_digest_closed_before_this_run(
 
     closed_digest = _unreviewed(3, 13)
     mocker.patch("src.daily_job.get_unreviewed_digests", return_value=[closed_digest])
+    github_client.fetch_labels.return_value = ["Bug"]
+    mocker.patch("src.daily_job.get_recent_reviewed_judgments", return_value=[])
     capture_mock = mocker.patch(
         "src.daily_job.capture_corrections",
         return_value=CaptureResult(
@@ -500,10 +508,14 @@ def test_run_daily_cycle_excludes_a_wip_digest_closed_before_this_run(
     capture_mock.assert_called_once_with(
         connection,
         shadow_client,
+        gemini_judge,
         digest_id=3,
+        digest_window_end=closed_digest.window_end,
         shadow_owner="virchan",
         shadow_repo="issue-triaging-agent-digests",
         shadow_issue_number=13,
+        known_labels=["Bug"],
+        recent_examples=[],
     )
     fetch_kwargs = fetch_and_judge_mock.call_args.kwargs
     assert fetch_kwargs["window_end"] - fetch_kwargs["window_start"] == WINDOW_DURATION

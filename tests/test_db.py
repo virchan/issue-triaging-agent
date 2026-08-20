@@ -8,14 +8,20 @@ import pytest
 from src.db import (
     connect,
     get_all_reviewed_judgments,
+    get_authoritative_correction_digest,
     get_judged_issues_by_numbers,
+    get_judgment_id_for_issue_number,
     get_recent_reviewed_judgments,
+    get_rejudge_context,
     get_unreviewed_digests,
+    mark_corrections_superseded,
     save_correction,
     save_issue_snapshot,
     save_issue_snapshots,
+    update_judgment,
 )
 from src.github_client import GitHubIssue
+from src.judgment import IssueJudgment
 
 
 @pytest.fixture
@@ -117,13 +123,15 @@ def test_save_correction_returns_new_id_on_insert(mocker: Any) -> None:
     cursor.fetchone.return_value = (9,)
 
     result_id = save_correction(
-        connection, 501, 1, "text", dt.datetime(2026, 8, 4, tzinfo=dt.UTC)
+        connection, 501, 20, 1, "text", dt.datetime(2026, 8, 4, tzinfo=dt.UTC)
     )
 
     assert result_id == 9
     assert cursor.execute.call_count == 1
     sql = cursor.execute.call_args.args[0]
     assert "ON CONFLICT (github_comment_id, judgment_id)" in sql
+    params = cursor.execute.call_args.args[1]
+    assert params == (501, 20, 1, "text", dt.datetime(2026, 8, 4, tzinfo=dt.UTC), False)
 
 
 def test_save_correction_falls_back_to_select_on_conflict(mocker: Any) -> None:
@@ -131,7 +139,7 @@ def test_save_correction_falls_back_to_select_on_conflict(mocker: Any) -> None:
     cursor.fetchone.side_effect = [None, (4,)]
 
     result_id = save_correction(
-        connection, 501, 1, "text", dt.datetime(2026, 8, 4, tzinfo=dt.UTC)
+        connection, 501, 20, 1, "text", dt.datetime(2026, 8, 4, tzinfo=dt.UTC)
     )
 
     assert result_id == 4
@@ -139,6 +147,24 @@ def test_save_correction_falls_back_to_select_on_conflict(mocker: Any) -> None:
     select_sql, select_params = cursor.execute.call_args_list[1].args
     assert "github_comment_id = %s AND judgment_id = %s" in select_sql
     assert select_params == (1, 501)
+
+
+def test_save_correction_passes_superseded_flag(mocker: Any) -> None:
+    connection, cursor = _mock_connection(mocker)
+    cursor.fetchone.return_value = (1,)
+
+    save_correction(
+        connection,
+        501,
+        20,
+        1,
+        "text",
+        dt.datetime(2026, 8, 4, tzinfo=dt.UTC),
+        superseded=True,
+    )
+
+    params = cursor.execute.call_args.args[1]
+    assert params[-1] is True
 
 
 def test_save_correction_allows_the_same_comment_for_a_different_judgment(
@@ -152,10 +178,10 @@ def test_save_correction_allows_the_same_comment_for_a_different_judgment(
     cursor.fetchone.return_value = (1,)
 
     save_correction(
-        connection, 501, 1, "text a", dt.datetime(2026, 8, 4, tzinfo=dt.UTC)
+        connection, 501, 20, 1, "text a", dt.datetime(2026, 8, 4, tzinfo=dt.UTC)
     )
     save_correction(
-        connection, 502, 1, "text b", dt.datetime(2026, 8, 4, tzinfo=dt.UTC)
+        connection, 502, 20, 1, "text b", dt.datetime(2026, 8, 4, tzinfo=dt.UTC)
     )
 
     assert cursor.execute.call_count == 2
@@ -163,7 +189,138 @@ def test_save_correction_allows_the_same_comment_for_a_different_judgment(
     second_params = cursor.execute.call_args_list[1].args[1]
     assert first_params[0] == 501
     assert second_params[0] == 502
-    assert first_params[1] == second_params[1] == 1
+    assert first_params[2] == second_params[2] == 1
+
+
+def test_get_judgment_id_for_issue_number_not_scoped_to_a_digest(
+    mocker: Any,
+) -> None:
+    """Regression test: must find a judgment by github_number alone, not
+    require it to match a specific digest_id - a judgment's digest_id is
+    reassigned whenever backlog catch-up re-surfaces it into a newer
+    digest, so an older digest's own link can't be trusted."""
+
+    connection, cursor = _mock_connection(mocker)
+    cursor.fetchone.return_value = (501,)
+
+    result = get_judgment_id_for_issue_number(connection, 34649)
+
+    assert result == 501
+    sql, params = cursor.execute.call_args.args
+    assert "digest_id" not in sql
+    assert params == (34649,)
+
+
+def test_get_judgment_id_for_issue_number_returns_none_when_not_found(
+    mocker: Any,
+) -> None:
+    connection, cursor = _mock_connection(mocker)
+    cursor.fetchone.return_value = None
+
+    assert get_judgment_id_for_issue_number(connection, 99999) is None
+
+
+def test_mark_corrections_superseded_updates_only_non_superseded_rows(
+    mocker: Any,
+) -> None:
+    connection, cursor = _mock_connection(mocker)
+
+    mark_corrections_superseded(connection, 501)
+
+    sql, params = cursor.execute.call_args.args
+    assert "superseded = TRUE" in sql
+    assert "superseded = FALSE" in sql
+    assert params == (501,)
+    # Deliberately does not commit - see the function's own docstring:
+    # it's one step of a single logical event with save_correction and
+    # update_judgment, which must land together.
+    connection.commit.assert_not_called()
+
+
+def test_get_authoritative_correction_digest_returns_most_recent(
+    mocker: Any,
+) -> None:
+    connection, cursor = _mock_connection(mocker)
+    cursor.fetchone.return_value = (16, dt.datetime(2026, 8, 19, tzinfo=dt.UTC))
+
+    result = get_authoritative_correction_digest(connection, 501)
+
+    assert result == (16, dt.datetime(2026, 8, 19, tzinfo=dt.UTC))
+    sql = cursor.execute.call_args.args[0]
+    assert "superseded = FALSE" in sql
+    assert "ORDER BY d.window_end DESC" in sql
+
+
+def test_get_authoritative_correction_digest_returns_none_when_no_correction(
+    mocker: Any,
+) -> None:
+    connection, cursor = _mock_connection(mocker)
+    cursor.fetchone.return_value = None
+
+    assert get_authoritative_correction_digest(connection, 501) is None
+
+
+def test_get_rejudge_context_maps_row(mocker: Any) -> None:
+    connection, cursor = _mock_connection(mocker)
+    cursor.fetchone.return_value = (
+        "Issue title",
+        "Issue body",
+        "Bug",
+        False,
+        "summary",
+        "medium",
+        "rationale",
+        0.8,
+    )
+
+    result = get_rejudge_context(connection, 501)
+
+    assert result is not None
+    assert result.title == "Issue title"
+    assert result.body == "Issue body"
+    assert result.judgment == IssueJudgment(
+        suggested_label="Bug",
+        is_spam=False,
+        summary="summary",
+        priority="medium",
+        rationale="rationale",
+        confidence=0.8,
+    )
+
+
+def test_get_rejudge_context_returns_none_when_not_found(mocker: Any) -> None:
+    connection, cursor = _mock_connection(mocker)
+    cursor.fetchone.return_value = None
+
+    assert get_rejudge_context(connection, 501) is None
+
+
+def test_update_judgment_overwrites_in_place(mocker: Any) -> None:
+    connection, cursor = _mock_connection(mocker)
+    judgment = IssueJudgment(
+        suggested_label="module:decomposition",
+        is_spam=False,
+        summary="revised summary",
+        priority="medium",
+        rationale="revised rationale",
+        confidence=0.9,
+    )
+
+    update_judgment(connection, 501, judgment)
+
+    sql, params = cursor.execute.call_args.args
+    assert "UPDATE judgments" in sql
+    assert params == (
+        "module:decomposition",
+        False,
+        "revised summary",
+        "medium",
+        "revised rationale",
+        0.9,
+        501,
+    )
+    # Deliberately does not commit - see the function's own docstring.
+    connection.commit.assert_not_called()
 
 
 def test_get_recent_reviewed_judgments_maps_rows_and_passes_limit(
@@ -196,6 +353,7 @@ def test_get_recent_reviewed_judgments_maps_rows_and_passes_limit(
 
     sql, params = cursor.execute.call_args.args
     assert "state = 'reviewed'" in sql
+    assert "c.superseded = FALSE" in sql
     assert params == (5,)
 
 
