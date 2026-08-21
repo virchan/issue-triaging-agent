@@ -95,6 +95,12 @@ def _render_issue_section(issues: list[JudgedIssue]) -> list[str]:
         reference = f"[<code>{link_text}</code>]({_redirect_url(item.html_url)})"
         lines.append(f"### {reference} — {item.title}{spam_flag}")
         lines.append("")
+        # Deliberately kept alongside the now-clickable heading above, not
+        # redundant with it: the heading depends on redirect.github.com
+        # staying up (unofficial, undocumented - see _redirect_url), while
+        # this is the canonical github.com URL, correct regardless. Still
+        # backtick-wrapped/inert so it can't itself autolink into a
+        # cross-reference.
         lines.append(f"- **Link:** `{item.html_url}`")
         lines.append(f"- **Suggested label:** {judgment.suggested_label or '(none)'}")
         lines.append(f"- **Confidence:** {judgment.confidence:.2f}")
