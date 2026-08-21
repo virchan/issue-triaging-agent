@@ -21,6 +21,7 @@ from src.db import (
 )
 from src.gemini_client import GeminiJudge, GeminiResponseError, GeminiUnavailableError
 from src.github_client import GitHubClient
+from src.rendering import render_template
 
 LOGGER = logging.getLogger(__name__)
 
@@ -164,61 +165,31 @@ def format_acknowledgment(result: CaptureResult) -> str:
     The fuller conversational version was scoped out for now.
     """
 
-    lines: list[str] = []
-    if result.captured:
-        plural = "s" if result.captured != 1 else ""
-        lines.append(f"Recorded {result.captured} correction{plural}. Thank you!")
-    else:
-        lines.append("Recorded — no corrections needed for this digest.")
+    applied = [
+        {
+            "reference": f"scikit-learn/scikit-learn/{item.github_number}",
+            "correction_text": item.correction_text,
+            "new_label": item.new_label,
+        }
+        for item in result.applied
+    ]
+    superseded = [
+        {
+            "github_number": item.github_number,
+            "authoritative_shadow_issue_number": item.authoritative_shadow_issue_number,
+        }
+        for item in result.superseded
+    ]
 
-    if result.applied:
-        entries = []
-        for item in result.applied:
-            reference = f"scikit-learn/scikit-learn/{item.github_number}"
-            entry = f"**`{reference}`**\n\n{item.correction_text}"
-            if item.new_label is not None:
-                entry += f"\n\n→ label updated to **{item.new_label}**"
-            entries.append(entry)
-        summary = f"Corrections recorded ({len(result.applied)})"
-        detail_body = "\n\n---\n\n".join(entries)
-        lines.append(
-            f"<details>\n<summary>{summary}</summary>\n\n{detail_body}\n\n</details>"
-        )
-
-    for item in result.superseded:
-        lines.append(
-            f"Note: your note about `scikit-learn/scikit-learn/{item.github_number}` "
-            "wasn't applied here - a more recent correction for that issue "
-            f"already exists on #{item.authoritative_shadow_issue_number}. "
-            "See that thread instead."
-        )
-
-    if result.unattributed_comment_ids:
-        count = len(result.unattributed_comment_ids)
-        plural = "s" if count != 1 else ""
-        lines.append(
-            f"Note: {count} comment{plural} could not be matched to a specific "
-            "issue (no owner/repo/number reference found) and were not recorded."
-        )
-
-    if result.capped:
-        plural = "s" if result.capped != 1 else ""
-        lines.append(
-            f"Note: {result.capped} correction{plural} were recorded but not "
-            "re-judged this round (today's re-judge limit was reached)."
-        )
-
-    if result.rejudge_failures:
-        count = len(result.rejudge_failures)
-        plural = "s" if count != 1 else ""
-        lines.append(
-            f"Note: {count} correction{plural} were recorded but the re-judge "
-            "call failed - the correction is on file, the judgment itself "
-            "wasn't updated."
-        )
-
-    lines.append("This digest is now marked reviewed.")
-    return "\n\n".join(lines)
+    return render_template(
+        "correction-acknowledgement.md.jinja",
+        captured=result.captured,
+        applied=applied,
+        superseded=superseded,
+        unattributed_count=len(result.unattributed_comment_ids),
+        capped=result.capped,
+        rejudge_failure_count=len(result.rejudge_failures),
+    )
 
 
 def capture_corrections(

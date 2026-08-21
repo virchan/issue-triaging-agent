@@ -1,0 +1,42 @@
+{% macro render_groups(groups) %}
+{% for group in groups %}
+## {{ group.heading }}
+
+{% for issue in group.issues %}
+### [<code>{{ issue.reference_text }}</code>]({{ issue.redirect_url }}) : {{ issue.title }}{{ issue.spam_flag }}
+
+- **Link:** `{{ issue.html_url }}`
+- **Suggested label:** {{ issue.suggested_label or "(none)" }}
+- **Confidence:** {{ "%.2f"|format(issue.confidence) }}
+
+{{ issue.summary }}
+
+*Rationale: {{ issue.rationale }}*
+
+{% endfor %}
+{% endfor %}
+{% endmacro %}
+{% if wip_digest_issue_number is not none %}
+_Still working on #{{ wip_digest_issue_number }}? The issue(s) below are what's new since it was opened._
+
+{% endif %}
+{% if not has_issues and not has_backlog %}
+No newly created {{ scope }} were found for {{ date }}.
+{% else %}
+{% if has_issues %}
+{{ issue_count }} {{ scope }} reviewed for {{ date }}.
+
+{{ render_groups(issue_groups) }}
+{% endif %}
+{% if has_backlog %}
+{% if has_issues %}
+---
+
+That's everything newly created. Because there's nothing else new to triage, here are {{ backlog_count }} older open issue(s) that still need triaging too:
+{% else %}
+No newly created {{ scope }} were found for {{ date }}. Because there's nothing new to triage, here are {{ backlog_count }} older open issue(s) that still need triaging:
+{% endif %}
+
+{{ render_groups(backlog_groups) }}
+{% endif %}
+{% endif %}

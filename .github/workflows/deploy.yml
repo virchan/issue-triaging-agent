@@ -1,0 +1,77 @@
+name: Deploy
+
+# Manual only - a button press in the Actions tab, not an auto-deploy on
+# every push. Rebuilding/redeploying is a deliberate act, same as the
+# local CLI flow it replaces (see LOG.md).
+on:
+  workflow_dispatch: {}
+
+# id-token: write is required for Workload Identity Federation - GitHub
+# mints a short-lived OIDC token this workflow exchanges for GCP access.
+# No GCP credential is ever stored in this repo (see LOG.md for why).
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - run: uv python install
+
+      - run: uv sync
+
+      - run: uv run ruff check .
+
+      - run: uv run ruff format --check .
+
+      - run: uv run pytest -v
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker "${{ secrets.GCP_REGION }}-docker.pkg.dev" --quiet
+
+      - name: Build and push image
+        run: |
+          IMAGE="${{ secrets.GCP_IMAGE }}"
+          SHA="${GITHUB_SHA::7}"
+          docker build -t "$IMAGE:latest" -t "$IMAGE:$SHA" .
+          docker push "$IMAGE:latest"
+          docker push "$IMAGE:$SHA"
+
+      - name: Redeploy Cloud Run Job
+        run: |
+          gcloud run jobs update "${{ secrets.GCP_CLOUD_RUN_JOB }}" \
+            --region="${{ secrets.GCP_REGION }}" \
+            --image="${{ secrets.GCP_IMAGE }}:latest"
+
+      - name: Redeploy Cloud Run service
+        run: |
+          gcloud run deploy "${{ secrets.GCP_CLOUD_RUN_SERVICE }}" \
+            --region="${{ secrets.GCP_REGION }}" \
+            --image="${{ secrets.GCP_IMAGE }}:latest"
+
+      - name: Verify health
+        run: |
+          URL=$(gcloud run services describe "${{ secrets.GCP_CLOUD_RUN_SERVICE }}" \
+            --region="${{ secrets.GCP_REGION }}" --format='value(status.url)')
+          curl -sf "$URL/health"

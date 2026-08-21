@@ -1,0 +1,45 @@
+{% if captured %}
+Recorded {{ captured }} correction{{ "s" if captured != 1 else "" }}. Thank you!
+{% else %}
+Recorded — no corrections needed for this digest.
+{% endif %}
+
+{% if applied %}
+<details>
+<summary>Corrections recorded ({{ applied|length }})</summary>
+
+{% for item in applied %}
+**`{{ item.reference }}`**
+
+{{ item.correction_text }}
+{% if item.new_label is not none %}
+
+→ label updated to **{{ item.new_label }}**
+{% endif %}
+{% if not loop.last %}
+
+---
+
+{% endif %}
+{% endfor %}
+
+</details>
+
+{% endif %}
+{% for item in superseded %}
+Note: your note about `scikit-learn/scikit-learn/{{ item.github_number }}` wasn't applied here - a more recent correction for that issue already exists on #{{ item.authoritative_shadow_issue_number }}. See that thread instead.
+
+{% endfor %}
+{% if unattributed_count %}
+Note: {{ unattributed_count }} comment{{ "s" if unattributed_count != 1 else "" }} could not be matched to a specific issue (no owner/repo/number reference found) and were not recorded.
+
+{% endif %}
+{% if capped %}
+Note: {{ capped }} correction{{ "s" if capped != 1 else "" }} were recorded but not re-judged this round (today's re-judge limit was reached).
+
+{% endif %}
+{% if rejudge_failure_count %}
+Note: {{ rejudge_failure_count }} correction{{ "s" if rejudge_failure_count != 1 else "" }} were recorded but the re-judge call failed - the correction is on file, the judgment itself wasn't updated.
+
+{% endif %}
+This digest is now marked reviewed.

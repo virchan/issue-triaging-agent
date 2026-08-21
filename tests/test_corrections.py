@@ -588,7 +588,7 @@ def test_capture_corrections_posts_one_acknowledgment_before_marking_reviewed(
         "issue-triaging-agent-digests",
         4,
         "Recorded — no corrections needed for this digest.\n\n"
-        "This digest is now marked reviewed.",
+        "This digest is now marked reviewed.\n",
     )
     # Posted before the commit, so a failed post never leaves a reviewed
     # digest with no acknowledgment - see corrections.py's comment.

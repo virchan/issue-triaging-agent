@@ -18,6 +18,7 @@ from src.db import (
     mark_digest_published,
 )
 from src.github_client import GitHubClient
+from src.rendering import render_template
 
 LOGGER = logging.getLogger(__name__)
 
@@ -65,52 +66,54 @@ def _redirect_url(html_url: str) -> str:
     return html_url.replace("https://github.com/", "https://redirect.github.com/", 1)
 
 
-def _render_issue_section(issues: list[JudgedIssue]) -> list[str]:
-    """Render one priority-grouped block of issues - the shared per-issue
-    formatting used for both the "new" and "backlog" sections.
+def _group_issues_by_priority(issues: list[JudgedIssue]) -> list[dict[str, Any]]:
+    """Group issues by priority, in _PRIORITY_ORDER order, skipping empty
+    groups - the one piece of real logic (grouping/sorting/URL-building,
+    not Markdown layout) the digest template still delegates to Python.
+    Shared by the "new" and "backlog" sections - see digest.md.jinja's
+    render_groups macro, which both call into.
 
-    Issue references are a real, clickable Markdown link - `[<code>repo/
-    number</code>](redirect.github.com/...)` - rather than the inert
-    backtick-wrapped `owner/repo/number` text used before. A real link
-    (or GitHub's own owner/repo#NNN autolink syntax) whose target is a
-    real github.com issue/PR URL creates a visible GitHub cross-reference
-    on that issue; redirect.github.com does not (see _redirect_url). The
-    `<code>` tags, not backticks, are deliberate: inline code inside a
-    Markdown link label renders inconsistently, HTML tags don't.
+    Each issue's reference is a real, clickable link - `[<code>repo/
+    number</code>](redirect.github.com/...)` in the template - rather
+    than the inert backtick-wrapped `owner/repo/number` text used before
+    the redirect.github.com change. A real link (or GitHub's own
+    owner/repo#NNN autolink syntax) whose target is a real github.com
+    issue/PR URL creates a visible GitHub cross-reference on that issue;
+    redirect.github.com does not (see _redirect_url).
     """
 
-    lines: list[str] = []
     ordered = sorted(issues, key=lambda item: _PRIORITY_ORDER[item.judgment.priority])
 
+    groups: list[dict[str, Any]] = []
     current_priority: str | None = None
     for item in ordered:
         judgment = item.judgment
         if judgment.priority != current_priority:
             current_priority = judgment.priority
-            lines.append(f"## {_PRIORITY_HEADINGS[current_priority]}")
-            lines.append("")
+            groups.append(
+                {"heading": _PRIORITY_HEADINGS[current_priority], "issues": []}
+            )
 
-        spam_flag = " ⚠️ possible spam" if judgment.is_spam else ""
-        link_text = f"{item.repo_name}/{item.github_number}"
-        reference = f"[<code>{link_text}</code>]({_redirect_url(item.html_url)})"
-        lines.append(f"### {reference} — {item.title}{spam_flag}")
-        lines.append("")
-        # Deliberately kept alongside the now-clickable heading above, not
-        # redundant with it: the heading depends on redirect.github.com
-        # staying up (unofficial, undocumented - see _redirect_url), while
-        # this is the canonical github.com URL, correct regardless. Still
-        # backtick-wrapped/inert so it can't itself autolink into a
-        # cross-reference.
-        lines.append(f"- **Link:** `{item.html_url}`")
-        lines.append(f"- **Suggested label:** {judgment.suggested_label or '(none)'}")
-        lines.append(f"- **Confidence:** {judgment.confidence:.2f}")
-        lines.append("")
-        lines.append(judgment.summary)
-        lines.append("")
-        lines.append(f"*Rationale: {judgment.rationale}*")
-        lines.append("")
+        groups[-1]["issues"].append(
+            {
+                "reference_text": f"{item.repo_name}/{item.github_number}",
+                "redirect_url": _redirect_url(item.html_url),
+                "html_url": item.html_url,
+                "title": item.title,
+                # Plain text, not a boolean the template branches on: an
+                # inline {% if %}...{% endif %} right before a blank line
+                # interacts badly with the Environment's trim_blocks
+                # setting (it eats the newline right after the tag,
+                # collapsing the blank line meant to follow it).
+                "spam_flag": " ⚠️ possible spam" if judgment.is_spam else "",
+                "suggested_label": judgment.suggested_label,
+                "confidence": judgment.confidence,
+                "summary": judgment.summary,
+                "rationale": judgment.rationale,
+            }
+        )
 
-    return lines
+    return groups
 
 
 def format_digest_body(
@@ -143,43 +146,18 @@ def format_digest_body(
     backlog_issues = backlog_issues or []
     scope = f'issue(s) labelled "{label}"' if label else "non-bot issue(s)"
 
-    lines: list[str] = []
-    if wip_digest_issue_number is not None:
-        lines.append(
-            f"_Still working on #{wip_digest_issue_number}? "
-            "The issue(s) below are what's new since it was opened._"
-        )
-        lines.append("")
-
-    if not issues and not backlog_issues:
-        lines.append(f"No newly created {scope} were found for {date.isoformat()}.")
-        return "\n".join(lines).strip() + "\n"
-
-    if issues:
-        lines.append(f"{len(issues)} {scope} reviewed for {date.isoformat()}.")
-        lines.append("")
-        lines.extend(_render_issue_section(issues))
-
-    if backlog_issues:
-        if issues:
-            lines.append("---")
-            lines.append("")
-            lines.append(
-                "That's everything newly created. Because there's nothing "
-                f"else new to triage, here are {len(backlog_issues)} older "
-                "open issue(s) that still need triaging too:"
-            )
-        else:
-            lines.append(
-                f"No newly created {scope} were found for {date.isoformat()}. "
-                f"Because there's nothing new to triage, here are "
-                f"{len(backlog_issues)} older open issue(s) that still need "
-                "triaging:"
-            )
-        lines.append("")
-        lines.extend(_render_issue_section(backlog_issues))
-
-    return "\n".join(lines).strip() + "\n"
+    return render_template(
+        "digest.md.jinja",
+        date=date.isoformat(),
+        scope=scope,
+        wip_digest_issue_number=wip_digest_issue_number,
+        has_issues=bool(issues),
+        has_backlog=bool(backlog_issues),
+        issue_count=len(issues),
+        backlog_count=len(backlog_issues),
+        issue_groups=_group_issues_by_priority(issues),
+        backlog_groups=_group_issues_by_priority(backlog_issues),
+    )
 
 
 def build_digest(
