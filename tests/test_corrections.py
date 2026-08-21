@@ -104,6 +104,34 @@ def test_extract_corrections_by_issue_ignores_a_bare_hash_number() -> None:
     assert extract_corrections_by_issue(body) == {}
 
 
+def test_extract_corrections_by_issue_ignores_a_bare_hash_number_even_alone() -> None:
+    """Deliberate, per LOG.md entry 67: bare "#NNN" is reserved for real,
+    clickable same-repo references (e.g. pointing at another digest
+    thread) and must never be treated as a scikit-learn reference, even
+    when it's the only thing on the line - not just when it's a stray
+    aside next to a real reference."""
+
+    assert extract_corrections_by_issue("See #16 for more context.") == {}
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "`scikit-learn/34649` is not about linear model, it's about SVC",
+        "sklearn/34649 is not about linear model, it's about SVC",
+        "Sklearn/34649 is not about linear model, it's about SVC",
+        "SCIKIT-LEARN/34649 is not about linear model, it's about SVC",
+    ],
+)
+def test_extract_corrections_by_issue_accepts_known_short_aliases(body: str) -> None:
+    """Real request: the operator may write "scikit-learn/34649" or
+    "sklearn/34649" instead of the full "scikit-learn/scikit-learn/34649"
+    - and might vary casing depending on mood. Both known aliases must
+    resolve to the same github_number, case-insensitively."""
+
+    assert extract_corrections_by_issue(body) == {34649: body}
+
+
 def test_format_acknowledgment_with_corrections() -> None:
     text = format_acknowledgment(
         CaptureResult(issue_still_open=False, already_reviewed=False, captured=2)

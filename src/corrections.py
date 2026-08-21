@@ -24,7 +24,42 @@ from src.github_client import GitHubClient
 
 LOGGER = logging.getLogger(__name__)
 
-_ISSUE_REFERENCE_PATTERN = re.compile(r"[\w.-]+/[\w.-]+/(\d+)")
+# Known short names the operator might casually use for scikit-learn/
+# scikit-learn instead of spelling out the full owner/repo. An allowlist,
+# not open-ended fuzzy matching: a pattern loose enough to guess at any
+# "word/number" is exactly what caused the entry 63 incident (a stray
+# "#13" elsewhere in a comment got misattributed). Anything not on this
+# list, or not in the full owner/repo/number form below, isn't matched -
+# it falls through to extract_corrections_by_issue's existing
+# unattributed-comment reporting rather than being guessed at. Add more
+# aliases here as they come up in real use.
+_KNOWN_REPO_ALIASES = ("scikit-learn", "sklearn")
+
+# Tried in order, most specific first - a line is matched by the first
+# pattern that hits, not all of them (both patterns can, coincidentally,
+# both match somewhere in a full "owner/repo/number" reference, since
+# "repo/number" is a literal substring of it - trying the specific form
+# first keeps which pattern actually matched unambiguous rather than
+# relying on that overlap always extracting the same number).
+_REFERENCE_PATTERNS = [
+    re.compile(
+        r"[\w.-]+/[\w.-]+/(\d+)"
+    ),  # owner/repo/number, e.g. scikit-learn/scikit-learn/34649
+    re.compile(
+        r"\b(?:"
+        + "|".join(re.escape(alias) for alias in _KNOWN_REPO_ALIASES)
+        + r")/(\d+)\b",
+        re.IGNORECASE,
+    ),  # known short alias/number, e.g. scikit-learn/34649 or sklearn/34649
+]
+
+# Bare "#NNN" is deliberately NOT matched here, even though it's a
+# tempting shorthand: it already means something else in this codebase -
+# a real, clickable same-repo reference to another digest thread (see
+# digest.py's wip_digest_issue_number reminder line and corrections.py's
+# SupersededCorrection message). Recognizing it here too would silently
+# reintroduce the exact ambiguity entry 63 fixed, just from the other
+# direction.
 
 # How many corrections get an actual re-judge (a fresh Gemini call) per
 # capture_corrections call. Corrections beyond this are still recorded
@@ -34,16 +69,29 @@ _ISSUE_REFERENCE_PATTERN = re.compile(r"[\w.-]+/[\w.-]+/(\d+)")
 REJUDGE_CAP = 5
 
 
+def _match_issue_reference(line: str) -> int | None:
+    """Try each pattern in _REFERENCE_PATTERNS, in order, returning the
+    first match's github_number - None if the line matches none of them.
+    """
+
+    for pattern in _REFERENCE_PATTERNS:
+        match = pattern.search(line)
+        if match is not None:
+            return int(match.group(1))
+    return None
+
+
 def extract_corrections_by_issue(comment_body: str) -> dict[int, str]:
-    """Split a comment into lines and extract every owner/repo/number
-    issue reference, one correction per referenced issue.
+    """Split a comment into lines and extract every recognizable issue
+    reference (see _REFERENCE_PATTERNS), one correction per referenced
+    issue.
 
     A digest comment often corrects several issues at once - one bullet
     per issue - so this returns a dict, not a single number: each line
     naming a specific issue (e.g. "`scikit-learn/scikit-learn/34649` is
-    not about linear model, it's about SVC") becomes that issue's
-    correction text, matching the reference format the digest itself
-    renders. Lines naming the same issue twice within one comment are
+    not about linear model, it's about SVC", or the shorter
+    "scikit-learn/34649"/"sklearn/34649") becomes that issue's correction
+    text. Lines naming the same issue twice within one comment are
     combined into a single correction. A line with no recognizable
     reference isn't attributed to any judgment (judgment_id is required)
     and is dropped rather than silently merged into an unrelated issue's
@@ -52,10 +100,9 @@ def extract_corrections_by_issue(comment_body: str) -> dict[int, str]:
 
     corrections: dict[int, list[str]] = {}
     for line in comment_body.splitlines():
-        match = _ISSUE_REFERENCE_PATTERN.search(line)
-        if match is None:
+        github_number = _match_issue_reference(line)
+        if github_number is None:
             continue
-        github_number = int(match.group(1))
         corrections.setdefault(github_number, []).append(line.strip())
 
     return {number: "\n".join(lines) for number, lines in corrections.items()}

@@ -50,20 +50,33 @@ def format_digest_title(date: dt.date) -> str:
     return f"Triage digest — {date.isoformat()}"
 
 
+def _redirect_url(html_url: str) -> str:
+    """Swap a real github.com issue/PR URL for its redirect.github.com
+    equivalent - same path (so /issues/ vs /pull/ stays correct without
+    us having to know which one this is), different host. Confirmed
+    empirically (by the operator, against a real scikit-learn issue) that
+    a redirect.github.com link does not create a GitHub cross-reference
+    the way a real github.com link does - see
+    https://github.com/orgs/community/discussions/23123. Unofficial and
+    undocumented by GitHub, so this could in principle stop working; if
+    it ever does, the fix is here, not scattered across every call site.
+    """
+
+    return html_url.replace("https://github.com/", "https://redirect.github.com/", 1)
+
+
 def _render_issue_section(issues: list[JudgedIssue]) -> list[str]:
     """Render one priority-grouped block of issues - the shared per-issue
     formatting used for both the "new" and "backlog" sections.
 
-    Issue references use the full `owner/repo/number` form, backtick-wrapped
-    (inline code) - not a bare "#NNN", and not "owner/repo#NNN" either.
-    Two reasons: a real markdown link (or GitHub's own owner/repo#NNN
-    autolink syntax) with the scikit-learn issue as its target creates a
-    visible GitHub cross-reference on that issue - confirmed empirically;
-    and as this repo's own issue count grows, a bare "#NNN" would
-    eventually collide with one of *our own* internal issue numbers,
-    silently autolinking to the wrong issue. The "/" separator (not "#")
-    avoids GitHub's reference syntax entirely, and the backticks are a
-    second, independent guard against both.
+    Issue references are a real, clickable Markdown link - `[<code>repo/
+    number</code>](redirect.github.com/...)` - rather than the inert
+    backtick-wrapped `owner/repo/number` text used before. A real link
+    (or GitHub's own owner/repo#NNN autolink syntax) whose target is a
+    real github.com issue/PR URL creates a visible GitHub cross-reference
+    on that issue; redirect.github.com does not (see _redirect_url). The
+    `<code>` tags, not backticks, are deliberate: inline code inside a
+    Markdown link label renders inconsistently, HTML tags don't.
     """
 
     lines: list[str] = []
@@ -78,7 +91,8 @@ def _render_issue_section(issues: list[JudgedIssue]) -> list[str]:
             lines.append("")
 
         spam_flag = " ⚠️ possible spam" if judgment.is_spam else ""
-        reference = f"`{item.repo_owner}/{item.repo_name}/{item.github_number}`"
+        link_text = f"{item.repo_name}/{item.github_number}"
+        reference = f"[<code>{link_text}</code>]({_redirect_url(item.html_url)})"
         lines.append(f"### {reference} — {item.title}{spam_flag}")
         lines.append("")
         lines.append(f"- **Link:** `{item.html_url}`")

@@ -88,18 +88,24 @@ def test_format_digest_body_marks_spam_visibly() -> None:
 def test_format_digest_body_never_creates_a_clickable_cross_reference() -> None:
     """Regression test for a real cross-reference incident.
 
-    A markdown link with the raw scikit-learn URL as its target creates a
-    visible GitHub cross-reference on the target issue - confirmed
-    empirically. This must never reappear. Nor may a bare "#NNN" or
-    "owner/repo#NNN" - the reference format is a backtick-wrapped
-    "owner/repo/NNN" instead, which avoids both.
+    A markdown link whose target is a real github.com issue/PR URL
+    creates a visible GitHub cross-reference on that issue - confirmed
+    empirically. The heading reference is a real, clickable link, but its
+    target must be the redirect.github.com form (confirmed empirically
+    NOT to create a cross-reference - see LOG.md entry 67), never a raw
+    github.com URL. Nor may a bare "#NNN" or "owner/repo#NNN" appear
+    anywhere. The separate "Link:" field still carries the real URL, but
+    backtick-wrapped (inert), so it can't autolink either.
     """
 
     body = format_digest_body(dt.date(2026, 8, 4), [_judged_issue(34649)])
 
     assert "](https://github.com/scikit-learn" not in body
+    assert (
+        "[<code>scikit-learn/34649</code>]"
+        "(https://redirect.github.com/scikit-learn/scikit-learn/issues/34649)"
+    ) in body
     assert "`https://github.com/scikit-learn/scikit-learn/issues/34649`" in body
-    assert "`scikit-learn/scikit-learn/34649`" in body
     assert "scikit-learn#34649" not in body
 
 
@@ -117,7 +123,7 @@ def test_format_digest_body_renders_backlog_only_section() -> None:
 
     assert 'No newly created issue(s) labelled "Needs Triage" were found' in body
     assert "1 older open issue(s) that still need triaging" in body
-    assert "`scikit-learn/scikit-learn/1`" in body
+    assert "<code>scikit-learn/1</code>" in body
 
 
 def test_format_digest_body_renders_combined_new_and_backlog_sections() -> None:
@@ -128,8 +134,8 @@ def test_format_digest_body_renders_combined_new_and_backlog_sections() -> None:
         backlog_issues=[_judged_issue(2)],
     )
 
-    assert "`scikit-learn/scikit-learn/1`" in body
-    assert "`scikit-learn/scikit-learn/2`" in body
+    assert "<code>scikit-learn/1</code>" in body
+    assert "<code>scikit-learn/2</code>" in body
     assert "1 older open issue(s) that still need triaging too" in body
 
 
@@ -247,7 +253,7 @@ def test_build_digest_includes_backlog_issues(mocker: Any, connection: Any) -> N
     )
 
     assert content.issue_count == 1
-    assert "`scikit-learn/scikit-learn/99`" in content.body
+    assert "<code>scikit-learn/99</code>" in content.body
     get_by_numbers.assert_called_once_with(
         connection, "scikit-learn", "scikit-learn", [99]
     )
