@@ -7,6 +7,7 @@ import pytest
 
 from src.corrections import (
     REJUDGE_CAP,
+    AppliedCorrection,
     CaptureResult,
     SupersededCorrection,
     capture_corrections,
@@ -110,6 +111,43 @@ def test_format_acknowledgment_with_corrections() -> None:
     assert "Recorded 2 corrections" in text
     assert "reviewed" in text
     assert "Note:" not in text
+
+
+def test_format_acknowledgment_lists_applied_corrections() -> None:
+    """Regression test for the real confusion on digest #15: a bare count
+    ("Recorded 3 corrections") gave no way to verify which corrections
+    were captured without waiting for the next digest. The collapsed
+    detail section must show every applied correction's text and, when a
+    live re-judge ran, the resulting label."""
+
+    text = format_acknowledgment(
+        CaptureResult(
+            issue_still_open=False,
+            already_reviewed=False,
+            captured=2,
+            applied=[
+                AppliedCorrection(
+                    34436, "should include Numerical Stability", "Numerical Stability"
+                ),
+                AppliedCorrection(34618, "line one\nline two", new_label=None),
+            ],
+        )
+    )
+    assert "<details>" in text
+    assert "Corrections recorded (2)" in text
+    assert "`scikit-learn/scikit-learn/34436`" in text
+    assert "should include Numerical Stability" in text
+    assert "→ label updated to **Numerical Stability**" in text
+    assert "`scikit-learn/scikit-learn/34618`" in text
+    assert "line one\nline two" in text
+    assert "</details>" in text
+    # Entries must be separated by a blank line (a divider, here), not run
+    # together in one paragraph - GitHub's renderer needs it to tell them
+    # apart as distinct blocks inside the collapsed section.
+    assert (
+        "**Numerical Stability**\n\n---\n\n**`scikit-learn/scikit-learn/34618`**"
+        in text
+    )
 
 
 def test_format_acknowledgment_with_no_corrections() -> None:
@@ -262,6 +300,14 @@ def test_capture_corrections_captures_and_rejudges_a_new_correction(
     result = _run(mocker, shadow_client, gemini_judge, connection)
 
     assert result.captured == 1
+    assert result.applied == [
+        AppliedCorrection(
+            34649,
+            "`scikit-learn/scikit-learn/34649` is not about linear model, "
+            "it's about SVC",
+            new_label="Bug",
+        )
+    ]
     assert result.unattributed_comment_ids == [2]
     assert result.superseded == []
     mark_superseded.assert_called_once_with(connection, 501)
@@ -318,6 +364,8 @@ def test_capture_corrections_produces_one_correction_per_referenced_issue(
     result = _run(mocker, shadow_client, gemini_judge, connection)
 
     assert result.captured == 2
+    assert {a.github_number for a in result.applied} == {34436, 34618}
+    assert all(a.new_label == "Bug" for a in result.applied)
     assert result.unattributed_comment_ids == []
     judgment_ids = {call.args[1] for call in save_correction.call_args_list}
     assert judgment_ids == {501, 502}
@@ -427,6 +475,11 @@ def test_capture_corrections_respects_the_rejudge_cap(
     assert result.captured == REJUDGE_CAP + 2
     assert result.capped == 2
     assert gemini_judge.judge_with_correction.call_count == REJUDGE_CAP
+    # Every captured correction is still surfaced, even the capped ones -
+    # they just carry no new_label since no re-judge ran for them.
+    assert len(result.applied) == REJUDGE_CAP + 2
+    assert [a.new_label for a in result.applied[:REJUDGE_CAP]] == ["Bug"] * REJUDGE_CAP
+    assert [a.new_label for a in result.applied[REJUDGE_CAP:]] == [None, None]
 
 
 def test_capture_corrections_records_a_rejudge_failure(
@@ -455,6 +508,9 @@ def test_capture_corrections_records_a_rejudge_failure(
 
     assert result.captured == 1
     assert result.rejudge_failures == [(34649, "down")]
+    assert result.applied == [
+        AppliedCorrection(34649, "`scikit-learn/scikit-learn/34649` needs a fix")
+    ]
     update_judgment.assert_not_called()
 
 

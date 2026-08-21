@@ -72,12 +72,33 @@ class SupersededCorrection:
 
 
 @dataclass
+class AppliedCorrection:
+    """One correction recorded as authoritative this round - surfaced in
+    the acknowledgment so the reviewer can verify what was actually
+    captured without waiting for the next digest or checking the DB
+    directly. A single entry can cover multiple lines of the original
+    comment: extract_corrections_by_issue combines every line about the
+    same issue into one correction_text before this is built."""
+
+    github_number: int
+    correction_text: str
+    new_label: str | None = None
+    """The revised suggested_label, set only when a live re-judge
+    succeeded this round. None when the correction was recorded but not
+    (yet) re-judged - see CaptureResult.capped/rejudge_failures for why."""
+
+
+@dataclass
 class CaptureResult:
     """Summary of one correction-capture attempt."""
 
     issue_still_open: bool
     already_reviewed: bool
     captured: int = 0
+    applied: list[AppliedCorrection] = field(default_factory=list)
+    """One entry per captured correction (len == captured), in the order
+    encountered - what the acknowledgment's collapsed detail section
+    lists."""
     unattributed_comment_ids: list[int] = field(default_factory=list)
     superseded: list[SupersededCorrection] = field(default_factory=list)
     capped: int = 0
@@ -102,6 +123,20 @@ def format_acknowledgment(result: CaptureResult) -> str:
         lines.append(f"Recorded {result.captured} correction{plural}. Thank you!")
     else:
         lines.append("Recorded — no corrections needed for this digest.")
+
+    if result.applied:
+        entries = []
+        for item in result.applied:
+            reference = f"scikit-learn/scikit-learn/{item.github_number}"
+            entry = f"**`{reference}`**\n\n{item.correction_text}"
+            if item.new_label is not None:
+                entry += f"\n\n→ label updated to **{item.new_label}**"
+            entries.append(entry)
+        summary = f"Corrections recorded ({len(result.applied)})"
+        detail_body = "\n\n---\n\n".join(entries)
+        lines.append(
+            f"<details>\n<summary>{summary}</summary>\n\n{detail_body}\n\n</details>"
+        )
 
     for item in result.superseded:
         lines.append(
@@ -195,6 +230,7 @@ def capture_corrections(
 
     captured = 0
     rejudges = 0
+    applied: list[AppliedCorrection] = []
     unattributed: list[int] = []
     superseded: list[SupersededCorrection] = []
     capped = 0
@@ -239,6 +275,8 @@ def capture_corrections(
                 superseded=False,
             )
             captured += 1
+            applied_entry = AppliedCorrection(github_number, text)
+            applied.append(applied_entry)
 
             if rejudges >= REJUDGE_CAP:
                 capped += 1
@@ -258,6 +296,7 @@ def capture_corrections(
                     recent_examples=recent_examples,
                 )
                 update_judgment(connection, judgment_id, revised)
+                applied_entry.new_label = revised.suggested_label
                 rejudges += 1
             except (GeminiUnavailableError, GeminiResponseError) as error:
                 LOGGER.warning(f"Re-judge failed for issue #{github_number}: {error}")
@@ -267,6 +306,7 @@ def capture_corrections(
         issue_still_open=False,
         already_reviewed=False,
         captured=captured,
+        applied=applied,
         unattributed_comment_ids=unattributed,
         superseded=superseded,
         capped=capped,
