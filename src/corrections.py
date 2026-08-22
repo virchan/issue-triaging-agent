@@ -150,6 +150,14 @@ class CaptureResult:
     encountered - what the acknowledgment's collapsed detail section
     lists."""
     unattributed_comment_ids: list[int] = field(default_factory=list)
+    unmatched_references: list[int] = field(default_factory=list)
+    """github_numbers that parsed as a valid reference (see
+    _REFERENCE_PATTERNS) but matched no issue this agent has ever
+    judged - distinct from unattributed_comment_ids (no reference found
+    at all). Without tracking this separately, a correction referencing
+    an unjudged issue (a typo, or a real issue the agent hasn't surfaced
+    yet) would be silently dropped with no trace anywhere - see LOG.md
+    entry 72."""
     superseded: list[SupersededCorrection] = field(default_factory=list)
     capped: int = 0
     """Corrections recorded as authoritative but not re-judged this call
@@ -189,6 +197,7 @@ def format_acknowledgment(result: CaptureResult) -> str:
         applied=applied,
         superseded=superseded,
         unattributed_count=len(result.unattributed_comment_ids),
+        unmatched_references=result.unmatched_references,
         capped=result.capped,
         rejudge_failure_count=len(result.rejudge_failures),
     )
@@ -210,12 +219,18 @@ def capture_corrections(
     """Capture corrections from a closed digest issue's comments.
 
     Idempotent: does nothing if the digest was already marked reviewed,
-    or if the issue isn't closed yet (review still in progress).
-    Comments without a parseable owner/repo/number reference on any line
-    are not stored as corrections (judgment_id is required) but are
-    reported back so nothing is silently dropped without a trace. A
+    or if the issue isn't closed yet (review still in progress). A
     comment naming several issues (one bullet per issue) produces one
     correction per issue, not one correction for the whole comment.
+
+    Two distinct ways a correction can go unrecorded, both reported back
+    so nothing is silently dropped without a trace (see LOG.md entry 72):
+    a comment with no parseable reference on any line at all
+    (unattributed_comment_ids), and a comment with a syntactically valid
+    reference that matches no issue this agent has ever judged - a typo,
+    or a real issue not yet surfaced (unmatched_references). judgment_id
+    is required either way, but these are different failures worth
+    telling the operator apart, not one undifferentiated "didn't work."
 
     A referenced issue can already carry a correction from a different,
     more recently created thread (the same real issue re-surfaced via
@@ -257,6 +272,7 @@ def capture_corrections(
     rejudges = 0
     applied: list[AppliedCorrection] = []
     unattributed: list[int] = []
+    unmatched: list[int] = []
     superseded: list[SupersededCorrection] = []
     capped = 0
     rejudge_failures: list[tuple[int, str]] = []
@@ -270,6 +286,7 @@ def capture_corrections(
         for github_number, text in corrections_by_issue.items():
             judgment_id = get_judgment_id_for_issue_number(connection, github_number)
             if judgment_id is None:
+                unmatched.append(github_number)
                 continue
 
             existing = get_authoritative_correction_digest(connection, judgment_id)
@@ -339,6 +356,7 @@ def capture_corrections(
         captured=captured,
         applied=applied,
         unattributed_comment_ids=unattributed,
+        unmatched_references=unmatched,
         superseded=superseded,
         capped=capped,
         rejudge_failures=rejudge_failures,

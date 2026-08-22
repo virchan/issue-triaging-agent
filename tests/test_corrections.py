@@ -197,6 +197,34 @@ def test_format_acknowledgment_notes_unattributed_comments() -> None:
     assert "Note: 1 comment could not be matched" in text
 
 
+def test_format_acknowledgment_notes_unmatched_references() -> None:
+    text = format_acknowledgment(
+        CaptureResult(
+            issue_still_open=False,
+            already_reviewed=False,
+            captured=0,
+            unmatched_references=[99999, 12345],
+        )
+    )
+    assert "Note: 2 references" in text
+    assert "`scikit-learn/scikit-learn/99999`" in text
+    assert "`scikit-learn/scikit-learn/12345`" in text
+    assert "were not recorded" in text
+
+
+def test_format_acknowledgment_notes_a_single_unmatched_reference() -> None:
+    text = format_acknowledgment(
+        CaptureResult(
+            issue_still_open=False,
+            already_reviewed=False,
+            captured=0,
+            unmatched_references=[99999],
+        )
+    )
+    assert "Note: 1 reference (" in text
+    assert "was not recorded" in text
+
+
 def test_format_acknowledgment_notes_superseded_correction() -> None:
     text = format_acknowledgment(
         CaptureResult(
@@ -292,6 +320,35 @@ def test_capture_corrections_skips_if_issue_still_open(
     assert result.captured == 0
     shadow_client.fetch_issue_comments.assert_not_called()
     shadow_client.create_issue_comment.assert_not_called()
+
+
+def test_capture_corrections_reports_a_reference_that_matches_no_judgment(
+    mocker: Any, shadow_client: Any, gemini_judge: Any, connection: Any
+) -> None:
+    """LOG.md entry 72: a correction referencing a syntactically valid
+    but never-judged issue (a typo, or a real issue not yet surfaced)
+    must not vanish silently - it's a different failure than
+    unattributed_comment_ids (no reference found at all), and needs its
+    own trace in the result and the acknowledgment."""
+
+    mocker.patch("src.corrections.is_digest_reviewed", return_value=False)
+    shadow_client.get_issue_state.return_value = "closed"
+    shadow_client.fetch_issue_comments.return_value = [
+        _comment(1, "`scikit-learn/scikit-learn/99999` should be labelled Bug"),
+    ]
+    mocker.patch("src.corrections.get_judgment_id_for_issue_number", return_value=None)
+    mark_reviewed = mocker.patch("src.corrections.mark_digest_reviewed")
+
+    result = _run(mocker, shadow_client, gemini_judge, connection)
+
+    assert result.captured == 0
+    assert result.unmatched_references == [99999]
+    assert result.unattributed_comment_ids == []
+    ack = shadow_client.create_issue_comment.call_args.args[3]
+    assert "1 reference" in ack
+    assert "`scikit-learn/scikit-learn/99999`" in ack
+    assert "didn't match any issue this agent has judged" in ack
+    mark_reviewed.assert_called_once_with(connection, 1)
 
 
 def test_capture_corrections_captures_and_rejudges_a_new_correction(

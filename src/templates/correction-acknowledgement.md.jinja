@@ -34,6 +34,10 @@ Note: your note about `scikit-learn/scikit-learn/{{ item.github_number }}` wasn'
 Note: {{ unattributed_count }} comment{{ "s" if unattributed_count != 1 else "" }} could not be matched to a specific issue (no owner/repo/number reference found) and were not recorded.
 
 {% endif %}
+{% if unmatched_references %}
+Note: {{ unmatched_references|length }} reference{{ "s" if unmatched_references|length != 1 else "" }} ({% for number in unmatched_references %}`scikit-learn/scikit-learn/{{ number }}`{{ ", " if not loop.last }}{% endfor %}) didn't match any issue this agent has judged, and {{ "were" if unmatched_references|length != 1 else "was" }} not recorded.
+
+{% endif %}
 {% if capped %}
 Note: {{ capped }} correction{{ "s" if capped != 1 else "" }} were recorded but not re-judged this round (today's re-judge limit was reached).
 

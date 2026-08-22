@@ -476,6 +476,7 @@ def test_get_judged_issues_by_numbers_maps_rows(mocker: Any) -> None:
             501,
             34648,
             "Title A",
+            "Body A",
             "https://github.com/scikit-learn/scikit-learn/issues/34648",
             "scikit-learn",
             "scikit-learn",

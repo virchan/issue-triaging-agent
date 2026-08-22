@@ -21,12 +21,14 @@ def _judged_issue(
     priority: str = "medium",
     is_spam: bool = False,
     judgment_id: int = 1,
+    body: str | None = None,
 ) -> JudgedIssue:
     return JudgedIssue(
         issue_id=number,
         judgment_id=judgment_id,
         github_number=number,
         title=f"Issue {number}",
+        body=body,
         html_url=f"https://github.com/scikit-learn/scikit-learn/issues/{number}",
         repo_owner="scikit-learn",
         repo_name="scikit-learn",
@@ -85,6 +87,49 @@ def test_format_digest_body_marks_spam_visibly() -> None:
     assert "⚠️ possible spam" in body
 
 
+def test_format_digest_body_flags_a_code_snippet_deterministically() -> None:
+    """Real maintainer request: a cheap, deterministic (no LLM call)
+    signal for whether an issue likely includes a reproducer - a pair of
+    triple-backtick markers, not something inferred by Gemini."""
+
+    with_code = _judged_issue(1, body="Repro:\n```python\nraise ValueError\n```")
+    without_code = _judged_issue(2, body="No code here, just prose.")
+    no_body_at_all = _judged_issue(3, body=None)
+
+    body = format_digest_body(
+        dt.date(2026, 8, 4), [with_code, without_code, no_body_at_all]
+    )
+
+    assert "### [<code>scikit-learn/1</code>" in body
+    section_1 = body.split("### [<code>scikit-learn/1</code>")[1].split("###")[0]
+    assert "**Contains a code snippet:** Yes" in section_1
+    section_2 = body.split("### [<code>scikit-learn/2</code>")[1].split("###")[0]
+    assert "**Contains a code snippet:** No" in section_2
+    section_3 = body.split("### [<code>scikit-learn/3</code>")[1]
+    assert "**Contains a code snippet:** No" in section_3
+
+
+def test_format_digest_body_does_not_flag_a_single_unclosed_backtick_fence() -> None:
+    """An unpaired triple-backtick (a stray, unclosed fence) isn't a real
+    code block - the check requires a matching pair, not just a substring
+    hit, to avoid a false positive from a truncated or malformed body."""
+
+    body = format_digest_body(
+        dt.date(2026, 8, 4),
+        [_judged_issue(1, body="Started a fence: ```\nbut never closed it")],
+    )
+    assert "**Contains a code snippet:** No" in body
+
+
+def test_format_digest_body_never_shows_the_removed_link_field() -> None:
+    """Removed once the redirect.github.com heading link was confirmed
+    working live twice (LOG.md entry 72) - kept redundant with itself
+    otherwise, showing the same URL twice per issue for no real benefit."""
+
+    body = format_digest_body(dt.date(2026, 8, 4), [_judged_issue(1)])
+    assert "**Link:**" not in body
+
+
 def test_format_digest_body_never_creates_a_clickable_cross_reference() -> None:
     """Regression test for a real cross-reference incident.
 
@@ -92,10 +137,11 @@ def test_format_digest_body_never_creates_a_clickable_cross_reference() -> None:
     creates a visible GitHub cross-reference on that issue - confirmed
     empirically. The heading reference is a real, clickable link, but its
     target must be the redirect.github.com form (confirmed empirically
-    NOT to create a cross-reference - see LOG.md entry 67), never a raw
-    github.com URL. Nor may a bare "#NNN" or "owner/repo#NNN" appear
-    anywhere. The separate "Link:" field still carries the real URL, but
-    backtick-wrapped (inert), so it can't autolink either.
+    NOT to create a cross-reference - see LOG.md entries 67, 71), never a
+    raw github.com URL. Nor may a bare "#NNN" or "owner/repo#NNN" appear
+    anywhere. The separate "Link:" field (which used to carry the real
+    URL as a backup) was removed once this was independently confirmed
+    live twice - see LOG.md entry 72.
     """
 
     body = format_digest_body(dt.date(2026, 8, 4), [_judged_issue(34649)])
@@ -105,7 +151,7 @@ def test_format_digest_body_never_creates_a_clickable_cross_reference() -> None:
         "[<code>scikit-learn/34649</code>]"
         "(https://redirect.github.com/scikit-learn/scikit-learn/issues/34649)"
     ) in body
-    assert "`https://github.com/scikit-learn/scikit-learn/issues/34649`" in body
+    assert "https://github.com/scikit-learn/scikit-learn/issues/34649" not in body
     assert "scikit-learn#34649" not in body
 
 

@@ -66,6 +66,17 @@ def _redirect_url(html_url: str) -> str:
     return html_url.replace("https://github.com/", "https://redirect.github.com/", 1)
 
 
+def _has_code_block(body: str | None) -> bool:
+    """Deterministic, not LLM-judged: does the issue body contain at
+    least one fenced code block (a pair of triple-backtick markers)?
+    Cheap real signal for whether an issue likely includes a reproducer,
+    directly requested by a real maintainer reviewing digests - no
+    Gemini call needed for something this mechanical to check.
+    """
+
+    return body is not None and body.count("```") >= 2
+
+
 def _group_issues_by_priority(issues: list[JudgedIssue]) -> list[dict[str, Any]]:
     """Group issues by priority, in _PRIORITY_ORDER order, skipping empty
     groups - the one piece of real logic (grouping/sorting/URL-building,
@@ -79,7 +90,11 @@ def _group_issues_by_priority(issues: list[JudgedIssue]) -> list[dict[str, Any]]
     the redirect.github.com change. A real link (or GitHub's own
     owner/repo#NNN autolink syntax) whose target is a real github.com
     issue/PR URL creates a visible GitHub cross-reference on that issue;
-    redirect.github.com does not (see _redirect_url).
+    redirect.github.com does not (see _redirect_url). html_url itself is
+    not passed to the template - only redirect_url is rendered, real
+    confirmed to not create a cross-reference (LOG.md entry 71); keeping
+    a second, redundant "Link:" field showing the same URL twice per
+    issue wasn't worth it once that was independently confirmed live.
     """
 
     ordered = sorted(issues, key=lambda item: _PRIORITY_ORDER[item.judgment.priority])
@@ -98,7 +113,6 @@ def _group_issues_by_priority(issues: list[JudgedIssue]) -> list[dict[str, Any]]
             {
                 "reference_text": f"{item.repo_name}/{item.github_number}",
                 "redirect_url": _redirect_url(item.html_url),
-                "html_url": item.html_url,
                 "title": item.title,
                 # Plain text, not a boolean the template branches on: an
                 # inline {% if %}...{% endif %} right before a blank line
@@ -108,6 +122,7 @@ def _group_issues_by_priority(issues: list[JudgedIssue]) -> list[dict[str, Any]]
                 "spam_flag": " ⚠️ possible spam" if judgment.is_spam else "",
                 "suggested_label": judgment.suggested_label,
                 "confidence": judgment.confidence,
+                "has_code_block": _has_code_block(item.body),
                 "summary": judgment.summary,
                 "rationale": judgment.rationale,
             }

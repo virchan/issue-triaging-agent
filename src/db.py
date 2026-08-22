@@ -179,6 +179,7 @@ class JudgedIssue:
     judgment_id: int
     github_number: int
     title: str
+    body: str | None
     html_url: str
     repo_owner: str
     repo_name: str
@@ -191,22 +192,23 @@ def _row_to_judged_issue(row: tuple[Any, ...]) -> JudgedIssue:
         judgment_id=row[1],
         github_number=row[2],
         title=row[3],
-        html_url=row[4],
-        repo_owner=row[5],
-        repo_name=row[6],
+        body=row[4],
+        html_url=row[5],
+        repo_owner=row[6],
+        repo_name=row[7],
         judgment=IssueJudgment(
-            suggested_label=row[7],
-            is_spam=row[8],
-            summary=row[9],
-            priority=row[10],
-            rationale=row[11],
-            confidence=row[12],
+            suggested_label=row[8],
+            is_spam=row[9],
+            summary=row[10],
+            priority=row[11],
+            rationale=row[12],
+            confidence=row[13],
         ),
     )
 
 
 _JUDGED_ISSUE_SELECT = """
-    SELECT i.id, j.id, i.github_number, i.title, i.html_url,
+    SELECT i.id, j.id, i.github_number, i.title, i.body, i.html_url,
            i.repo_owner, i.repo_name,
            j.suggested_label, j.is_spam, j.summary, j.priority,
            j.rationale, j.confidence

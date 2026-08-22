@@ -5,9 +5,9 @@
 {% for issue in group.issues %}
 ### [<code>{{ issue.reference_text }}</code>]({{ issue.redirect_url }}) : {{ issue.title }}{{ issue.spam_flag }}
 
-- **Link:** `{{ issue.html_url }}`
 - **Suggested label:** {{ issue.suggested_label or "(none)" }}
 - **Confidence:** {{ "%.2f"|format(issue.confidence) }}
+- **Contains a code snippet:** {{ "Yes" if issue.has_code_block else "No" }}
 
 {{ issue.summary }}
 
