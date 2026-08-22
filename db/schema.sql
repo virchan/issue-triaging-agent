@@ -76,5 +76,12 @@ CREATE TABLE IF NOT EXISTS corrections (
     github_created_at   TIMESTAMPTZ NOT NULL,
     captured_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
     superseded          BOOLEAN NOT NULL DEFAULT FALSE,
+    -- NULL means no live re-judge happened for this correction (capped,
+    -- failed, or superseded) - "we don't know what would have changed".
+    -- An empty array means a re-judge did happen but none of the tracked
+    -- fields (suggested_label, is_spam, priority) differed - "we know,
+    -- and nothing changed". Set after the fact (see update_judgment) -
+    -- absent at insert time since the outcome isn't known yet.
+    changed_fields      TEXT[],
     UNIQUE (github_comment_id, judgment_id)
 );

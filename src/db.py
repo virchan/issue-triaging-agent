@@ -591,6 +591,68 @@ def update_judgment(
         )
 
 
+# The judgment fields a correction is tracked against for
+# get_correction_field_counts. Deliberately excludes rationale (always
+# regenerated, so it "changes" on every re-judge trivially) and
+# confidence (a continuous float, same problem) - tracking either would
+# be noise, not signal about what a human actually corrected.
+TRACKED_CORRECTION_FIELDS = ("suggested_label", "is_spam", "priority")
+
+
+def set_correction_changed_fields(
+    connection: psycopg.Connection[Any],
+    correction_id: int,
+    changed_fields: list[str],
+) -> None:
+    """Record which of TRACKED_CORRECTION_FIELDS actually differed between
+    a judgment's pre- and post-correction values - called once per
+    successful re-judge, right after update_judgment, while both the old
+    and new values are still in the caller's hands (see src/corrections.py).
+
+    Deliberately does not commit - lands with the same re-judge event as
+    update_judgment/mark_corrections_superseded/save_correction.
+    """
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "UPDATE corrections SET changed_fields = %s WHERE id = %s",
+            (changed_fields, correction_id),
+        )
+
+
+def get_correction_field_counts(
+    connection: psycopg.Connection[Any],
+    since: dt.datetime | None = None,
+) -> dict[str, int]:
+    """How many corrections touched each tracked field, across every
+    correction that actually got a live re-judge (changed_fields IS NOT
+    NULL - capped/failed/superseded corrections never got one, so they
+    can't say anything about what would have changed).
+
+    Only reflects data captured after set_correction_changed_fields
+    existed - corrections recorded before this column was added have
+    changed_fields = NULL and are indistinguishable, in this query, from
+    "never re-judged". Not backfilled: the pre-correction judgment values
+    those older rows would need are already overwritten in judgments,
+    with nothing else recording what they used to be.
+    """
+
+    query = """
+        SELECT field, COUNT(*)
+        FROM corrections, unnest(changed_fields) AS field
+        WHERE changed_fields IS NOT NULL
+    """
+    params: list[Any] = []
+    if since is not None:
+        query += " AND captured_at >= %s"
+        params.append(since)
+    query += " GROUP BY field ORDER BY COUNT(*) DESC"
+
+    with connection.cursor() as cursor:
+        cursor.execute(query, params)
+        return {row[0]: row[1] for row in cursor.fetchall()}
+
+
 @dataclass
 class ReviewedJudgment:
     """A past judgment whose digest has been reviewed - either explicitly

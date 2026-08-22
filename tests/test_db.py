@@ -9,6 +9,7 @@ from src.db import (
     connect,
     get_all_reviewed_judgments,
     get_authoritative_correction_digest,
+    get_correction_field_counts,
     get_judged_issues_by_numbers,
     get_judgment_id_for_issue_number,
     get_recent_reviewed_judgments,
@@ -18,6 +19,7 @@ from src.db import (
     save_correction,
     save_issue_snapshot,
     save_issue_snapshots,
+    set_correction_changed_fields,
     update_judgment,
 )
 from src.github_client import GitHubIssue
@@ -321,6 +323,44 @@ def test_update_judgment_overwrites_in_place(mocker: Any) -> None:
     )
     # Deliberately does not commit - see the function's own docstring.
     connection.commit.assert_not_called()
+
+
+def test_set_correction_changed_fields_updates_by_id(mocker: Any) -> None:
+    connection, cursor = _mock_connection(mocker)
+
+    set_correction_changed_fields(connection, 42, ["suggested_label", "priority"])
+
+    sql, params = cursor.execute.call_args.args
+    assert "UPDATE corrections" in sql
+    assert "changed_fields" in sql
+    assert params == (["suggested_label", "priority"], 42)
+    # Deliberately does not commit - same logical event as update_judgment.
+    connection.commit.assert_not_called()
+
+
+def test_get_correction_field_counts_maps_rows(mocker: Any) -> None:
+    connection, cursor = _mock_connection(mocker)
+    cursor.fetchall.return_value = [("suggested_label", 3), ("priority", 1)]
+
+    result = get_correction_field_counts(connection)
+
+    assert result == {"suggested_label": 3, "priority": 1}
+    sql, params = cursor.execute.call_args.args
+    assert "changed_fields IS NOT NULL" in sql
+    assert "unnest(changed_fields)" in sql
+    assert params == []
+
+
+def test_get_correction_field_counts_filters_by_since(mocker: Any) -> None:
+    connection, cursor = _mock_connection(mocker)
+    cursor.fetchall.return_value = []
+    since = dt.datetime(2026, 8, 1, tzinfo=dt.UTC)
+
+    get_correction_field_counts(connection, since=since)
+
+    sql, params = cursor.execute.call_args.args
+    assert "captured_at >= %s" in sql
+    assert params == [since]
 
 
 def test_get_recent_reviewed_judgments_maps_rows_and_passes_limit(

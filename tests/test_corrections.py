@@ -315,7 +315,7 @@ def test_capture_corrections_captures_and_rejudges_a_new_correction(
         "src.corrections.get_authoritative_correction_digest", return_value=None
     )
     mark_superseded = mocker.patch("src.corrections.mark_corrections_superseded")
-    save_correction = mocker.patch("src.corrections.save_correction")
+    save_correction = mocker.patch("src.corrections.save_correction", return_value=999)
     mocker.patch(
         "src.corrections.get_rejudge_context",
         return_value=RejudgeContext(
@@ -323,6 +323,7 @@ def test_capture_corrections_captures_and_rejudges_a_new_correction(
         ),
     )
     update_judgment = mocker.patch("src.corrections.update_judgment")
+    set_changed_fields = mocker.patch("src.corrections.set_correction_changed_fields")
     mark_reviewed = mocker.patch("src.corrections.mark_digest_reviewed")
 
     result = _run(mocker, shadow_client, gemini_judge, connection)
@@ -352,7 +353,51 @@ def test_capture_corrections_captures_and_rejudges_a_new_correction(
     update_judgment.assert_called_once_with(
         connection, 501, _judgment(summary="revised")
     )
+    # gemini_judge's fixture revises only summary, which isn't a tracked
+    # field (see TRACKED_CORRECTION_FIELDS) - correctly reports "re-judged,
+    # nothing tracked changed" (empty list), not "never re-judged" (None).
+    set_changed_fields.assert_called_once_with(connection, 999, [])
     mark_reviewed.assert_called_once_with(connection, 1)
+
+
+def test_capture_corrections_records_which_tracked_fields_actually_changed(
+    mocker: Any, shadow_client: Any, gemini_judge: Any, connection: Any
+) -> None:
+    """A re-judge that actually revises suggested_label and priority (not
+    just summary/rationale/confidence) must report exactly those two
+    fields - the real signal set_correction_changed_fields exists for."""
+
+    mocker.patch("src.corrections.is_digest_reviewed", return_value=False)
+    shadow_client.get_issue_state.return_value = "closed"
+    shadow_client.fetch_issue_comments.return_value = [
+        _comment(1, "`scikit-learn/scikit-learn/34649` needs a different label"),
+    ]
+    mocker.patch("src.corrections.get_judgment_id_for_issue_number", return_value=501)
+    mocker.patch(
+        "src.corrections.get_authoritative_correction_digest", return_value=None
+    )
+    mocker.patch("src.corrections.mark_corrections_superseded")
+    mocker.patch("src.corrections.save_correction", return_value=999)
+    mocker.patch(
+        "src.corrections.get_rejudge_context",
+        return_value=RejudgeContext(
+            title="t",
+            body="b",
+            judgment=_judgment(suggested_label="Bug", is_spam=False, priority="medium"),
+        ),
+    )
+    gemini_judge.judge_with_correction.return_value = _judgment(
+        suggested_label="module:decomposition", is_spam=False, priority="high"
+    )
+    mocker.patch("src.corrections.update_judgment")
+    set_changed_fields = mocker.patch("src.corrections.set_correction_changed_fields")
+    mocker.patch("src.corrections.mark_digest_reviewed")
+
+    _run(mocker, shadow_client, gemini_judge, connection)
+
+    set_changed_fields.assert_called_once_with(
+        connection, 999, ["suggested_label", "priority"]
+    )
 
 
 def test_capture_corrections_produces_one_correction_per_referenced_issue(
@@ -387,6 +432,7 @@ def test_capture_corrections_produces_one_correction_per_referenced_issue(
         return_value=RejudgeContext(title="t", body="b", judgment=_judgment()),
     )
     mocker.patch("src.corrections.update_judgment")
+    mocker.patch("src.corrections.set_correction_changed_fields")
     mocker.patch("src.corrections.mark_digest_reviewed")
 
     result = _run(mocker, shadow_client, gemini_judge, connection)
@@ -463,6 +509,7 @@ def test_capture_corrections_own_thread_being_the_most_recent_still_applies(
         return_value=RejudgeContext(title="t", body="b", judgment=_judgment()),
     )
     mocker.patch("src.corrections.update_judgment")
+    mocker.patch("src.corrections.set_correction_changed_fields")
     mocker.patch("src.corrections.mark_digest_reviewed")
 
     result = _run(mocker, shadow_client, gemini_judge, connection)
@@ -496,6 +543,7 @@ def test_capture_corrections_respects_the_rejudge_cap(
         return_value=RejudgeContext(title="t", body="b", judgment=_judgment()),
     )
     mocker.patch("src.corrections.update_judgment")
+    set_changed_fields = mocker.patch("src.corrections.set_correction_changed_fields")
     mocker.patch("src.corrections.mark_digest_reviewed")
 
     result = _run(mocker, shadow_client, gemini_judge, connection)
@@ -508,6 +556,9 @@ def test_capture_corrections_respects_the_rejudge_cap(
     assert len(result.applied) == REJUDGE_CAP + 2
     assert [a.new_label for a in result.applied[:REJUDGE_CAP]] == ["Bug"] * REJUDGE_CAP
     assert [a.new_label for a in result.applied[REJUDGE_CAP:]] == [None, None]
+    # Only the ones that actually got re-judged have anything to report -
+    # capped corrections leave changed_fields NULL (never called for them).
+    assert set_changed_fields.call_count == REJUDGE_CAP
 
 
 def test_capture_corrections_records_a_rejudge_failure(
@@ -529,6 +580,7 @@ def test_capture_corrections_records_a_rejudge_failure(
         return_value=RejudgeContext(title="t", body="b", judgment=_judgment()),
     )
     update_judgment = mocker.patch("src.corrections.update_judgment")
+    set_changed_fields = mocker.patch("src.corrections.set_correction_changed_fields")
     mocker.patch("src.corrections.mark_digest_reviewed")
     gemini_judge.judge_with_correction.side_effect = GeminiUnavailableError("down")
 
@@ -540,6 +592,7 @@ def test_capture_corrections_records_a_rejudge_failure(
         AppliedCorrection(34649, "`scikit-learn/scikit-learn/34649` needs a fix")
     ]
     update_judgment.assert_not_called()
+    set_changed_fields.assert_not_called()
 
 
 def test_capture_corrections_translates_response_error_to_failure(

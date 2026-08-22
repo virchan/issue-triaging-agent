@@ -9,6 +9,7 @@ from typing import Any
 import psycopg
 
 from src.db import (
+    TRACKED_CORRECTION_FIELDS,
     ReviewedJudgment,
     get_authoritative_correction_digest,
     get_judgment_id_for_issue_number,
@@ -17,6 +18,7 @@ from src.db import (
     mark_corrections_superseded,
     mark_digest_reviewed,
     save_correction,
+    set_correction_changed_fields,
     update_judgment,
 )
 from src.gemini_client import GeminiJudge, GeminiResponseError, GeminiUnavailableError
@@ -226,7 +228,12 @@ def capture_corrections(
     this becomes the new authoritative correction: any previous
     authoritative correction for the same judgment is marked superseded,
     and a fresh Gemini call (judge_with_correction) revises the judgment
-    in place, up to REJUDGE_CAP re-judges per call.
+    in place, up to REJUDGE_CAP re-judges per call. Each successful
+    re-judge also records which of TRACKED_CORRECTION_FIELDS actually
+    changed (see set_correction_changed_fields) - Phase 8 evidence for
+    which parts of a judgment corrections tend to be about, computed by
+    diffing the judgment's pre- and post-correction values while both are
+    still in hand, not inferred from the correction's free text.
 
     Posts a single acknowledgment comment (via shadow_client, so it
     appears as virchan-mirror) once processing is done. This is
@@ -283,7 +290,7 @@ def capture_corrections(
                 continue
 
             mark_corrections_superseded(connection, judgment_id)
-            save_correction(
+            correction_id = save_correction(
                 connection,
                 judgment_id,
                 digest_id,
@@ -314,6 +321,12 @@ def capture_corrections(
                     recent_examples=recent_examples,
                 )
                 update_judgment(connection, judgment_id, revised)
+                changed_fields = [
+                    name
+                    for name in TRACKED_CORRECTION_FIELDS
+                    if getattr(context.judgment, name) != getattr(revised, name)
+                ]
+                set_correction_changed_fields(connection, correction_id, changed_fields)
                 applied_entry.new_label = revised.suggested_label
                 rejudges += 1
             except (GeminiUnavailableError, GeminiResponseError) as error:
