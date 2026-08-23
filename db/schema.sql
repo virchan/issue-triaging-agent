@@ -35,19 +35,45 @@ CREATE TABLE IF NOT EXISTS digests (
     closed_at                TIMESTAMPTZ
 );
 
--- Matches src/judgment.py's IssueJudgment. Note what's deliberately
--- absent: no duplicate-candidate fields (dropped from the MVP).
+-- Matches src/judgment.py's IssueJudgment, plus two columns for the
+-- duplicate-candidate feature (dropped from the original MVP, revisited
+-- with real evidence - see LOG.md entries 73-76). possible_duplicate_*
+-- is a ranked suggestion computed once at judgment time from
+-- issue_embeddings below, not a classification - real evaluation
+-- against adjudicated pairs found no threshold that cleanly separates
+-- duplicate from non-duplicate, so this is deliberately "most similar
+-- match found," always surfaced above a loose sanity floor, not a
+-- duplicate/not-duplicate verdict.
 CREATE TABLE IF NOT EXISTS judgments (
-    id                  SERIAL PRIMARY KEY,
-    issue_id            INTEGER NOT NULL UNIQUE REFERENCES issues (id),
-    digest_id           INTEGER REFERENCES digests (id),
-    suggested_label     TEXT,
-    is_spam             BOOLEAN NOT NULL DEFAULT FALSE,
-    summary             TEXT NOT NULL,
-    priority            TEXT NOT NULL CHECK (priority IN ('low', 'medium', 'high')),
-    rationale           TEXT NOT NULL,
-    confidence          REAL NOT NULL,
-    created_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+    id                              SERIAL PRIMARY KEY,
+    issue_id                        INTEGER NOT NULL UNIQUE REFERENCES issues (id),
+    digest_id                       INTEGER REFERENCES digests (id),
+    suggested_label                 TEXT,
+    is_spam                         BOOLEAN NOT NULL DEFAULT FALSE,
+    summary                         TEXT NOT NULL,
+    priority                        TEXT NOT NULL CHECK (priority IN ('low', 'medium', 'high')),
+    rationale                       TEXT NOT NULL,
+    confidence                      REAL NOT NULL,
+    possible_duplicate_number       INTEGER,
+    possible_duplicate_similarity   REAL,
+    created_at                      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- One embedding per issue - both issues this agent has judged and
+-- issues fetched purely as duplicate-candidate backfill (see
+-- scripts/backfill_issue_embeddings.py) share this table; not every
+-- issue_id here has a corresponding judgments row. model is recorded so
+-- a future embedding-model change (the prior text-embedding-004 was
+-- deprecated in Jan 2026) can be detected rather than silently mixing
+-- incompatible vectors. Pruned on a rolling 2-year window (see
+-- prune_old_issue_embeddings) to keep storage bounded - not kept
+-- forever, unlike issues/judgments/corrections themselves.
+CREATE TABLE IF NOT EXISTS issue_embeddings (
+    id              SERIAL PRIMARY KEY,
+    issue_id        INTEGER NOT NULL UNIQUE REFERENCES issues (id) ON DELETE CASCADE,
+    model           TEXT NOT NULL,
+    embedding       DOUBLE PRECISION[] NOT NULL,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 -- The operator's corrections, parsed from their comments on a digest

@@ -327,6 +327,43 @@ def test_create_issue_wraps_malformed_response(mocker: Any) -> None:
         client.create_issue("virchan", "issue-triaging-agent-digests", "t", "b")
 
 
+def test_fetch_issue_parses_response(mocker: Any) -> None:
+    response = mocker.Mock()
+    response.raise_for_status.return_value = None
+    response.json.return_value = _raw_issue(34649)
+    get = mocker.patch.object(httpx.Client, "get", return_value=response)
+
+    client = GitHubClient()
+    issue = client.fetch_issue("scikit-learn", "scikit-learn", 34649)
+
+    assert issue.number == 34649
+    assert issue.title == "Issue 34649"
+    get.assert_called_once_with("/repos/scikit-learn/scikit-learn/issues/34649")
+
+
+def test_fetch_issue_wraps_http_errors(mocker: Any) -> None:
+    response = mocker.Mock()
+    response.raise_for_status.side_effect = httpx.HTTPStatusError(
+        "boom", request=mocker.Mock(), response=mocker.Mock()
+    )
+    mocker.patch.object(httpx.Client, "get", return_value=response)
+
+    client = GitHubClient()
+    with pytest.raises(GitHubClientError):
+        client.fetch_issue("scikit-learn", "scikit-learn", 34649)
+
+
+def test_fetch_issue_wraps_malformed_response(mocker: Any) -> None:
+    response = mocker.Mock()
+    response.raise_for_status.return_value = None
+    response.json.return_value = {"missing": "everything"}
+    mocker.patch.object(httpx.Client, "get", return_value=response)
+
+    client = GitHubClient()
+    with pytest.raises(GitHubClientError):
+        client.fetch_issue("scikit-learn", "scikit-learn", 34649)
+
+
 def test_get_issue_state_wraps_http_errors(mocker: Any) -> None:
     response = mocker.Mock()
     response.raise_for_status.side_effect = httpx.HTTPStatusError(

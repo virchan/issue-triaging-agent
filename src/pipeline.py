@@ -11,11 +11,17 @@ import psycopg
 from src.bot_filter import partition_bot_issues
 from src.db import (
     ReviewedJudgment,
+    get_all_issue_embeddings,
+    get_issue_embedding,
     get_recent_reviewed_judgments,
     has_judgment,
+    save_issue_embedding,
     save_issue_snapshots,
     save_judgment,
+    set_possible_duplicate,
 )
+from src.duplicate_detection import find_possible_duplicate, issue_text
+from src.embeddings import EMBEDDING_MODEL, IssueEmbedder
 from src.gemini_client import GeminiJudge, GeminiResponseError, GeminiUnavailableError
 from src.github_client import GitHubClient, GitHubIssue
 
@@ -40,9 +46,50 @@ class PipelineResult:
     failures: list[tuple[int, str]] = field(default_factory=list)
 
 
+def _find_and_record_possible_duplicate(
+    *,
+    connection: psycopg.Connection[Any],
+    issue_embedder: IssueEmbedder,
+    issue: GitHubIssue,
+    issue_id: int,
+    judgment_id: int,
+) -> None:
+    """Embed issue (reusing a stored embedding if one already exists -
+    e.g. from the backfill, or a prior judgment), find the most similar
+    other issue in the pool, and record the result on this judgment.
+
+    A ranked suggestion, not a classification (LOG.md entries 73-76) -
+    always records the best match found above a loose sanity floor, or
+    explicitly records "none found" rather than leaving the columns
+    unset and ambiguous. Deliberately its own try/except, separate from
+    the judgment's: an embedding-service failure here must never
+    retroactively fail a judgment that already saved successfully.
+    """
+
+    try:
+        embedding = get_issue_embedding(connection, issue_id)
+        if embedding is None:
+            embedding = issue_embedder.embed(issue_text(issue.title, issue.body))
+            save_issue_embedding(connection, issue_id, EMBEDDING_MODEL, embedding)
+
+        candidates = [
+            (github_number, vector)
+            for _, github_number, vector in get_all_issue_embeddings(connection)
+            if github_number != issue.number
+        ]
+        match = find_possible_duplicate(embedding, candidates)
+        github_number, similarity = match if match is not None else (None, None)
+        set_possible_duplicate(connection, judgment_id, github_number, similarity)
+    except GeminiUnavailableError as error:
+        LOGGER.warning(
+            f"Duplicate-candidate lookup failed for issue #{issue.number}: {error}"
+        )
+
+
 def _judge_and_persist(
     *,
     gemini_judge: GeminiJudge,
+    issue_embedder: IssueEmbedder,
     connection: psycopg.Connection[Any],
     issues: list[GitHubIssue],
     ids_by_number: dict[int, int],
@@ -80,12 +127,21 @@ def _judge_and_persist(
                 known_labels=known_labels,
                 recent_examples=recent_examples,
             )
-            save_judgment(connection, issue_id, judgment)
+            judgment_id = save_judgment(connection, issue_id, judgment)
             judged_count += 1
             judged_numbers.append(issue.number)
         except (GeminiUnavailableError, GeminiResponseError) as error:
             LOGGER.warning(f"Judgment failed for issue #{issue.number}: {error}")
             failures.append((issue.number, str(error)))
+            continue
+
+        _find_and_record_possible_duplicate(
+            connection=connection,
+            issue_embedder=issue_embedder,
+            issue=issue,
+            issue_id=issue_id,
+            judgment_id=judgment_id,
+        )
 
     return judged_count, already_judged_count, failures, judged_numbers, reused_numbers
 
@@ -94,6 +150,7 @@ def fetch_and_judge(
     *,
     github_client: GitHubClient,
     gemini_judge: GeminiJudge,
+    issue_embedder: IssueEmbedder,
     connection: psycopg.Connection[Any],
     owner: str,
     repo: str,
@@ -141,6 +198,7 @@ def fetch_and_judge(
 
     judged_count, already_judged_count, failures, _, _ = _judge_and_persist(
         gemini_judge=gemini_judge,
+        issue_embedder=issue_embedder,
         connection=connection,
         issues=to_judge,
         ids_by_number=ids_by_number,
@@ -181,6 +239,7 @@ def fetch_and_judge_backlog(
     *,
     github_client: GitHubClient,
     gemini_judge: GeminiJudge,
+    issue_embedder: IssueEmbedder,
     connection: psycopg.Connection[Any],
     owner: str,
     repo: str,
@@ -218,6 +277,7 @@ def fetch_and_judge_backlog(
     judged_count, already_judged_count, failures, judged_numbers, reused_numbers = (
         _judge_and_persist(
             gemini_judge=gemini_judge,
+            issue_embedder=issue_embedder,
             connection=connection,
             issues=to_judge,
             ids_by_number=ids_by_number,

@@ -8,6 +8,9 @@
 - **Suggested label:** {{ issue.suggested_label or "(none)" }}
 - **Confidence:** {{ "%.2f"|format(issue.confidence) }}
 - **Contains a code snippet:** {{ "Yes" if issue.has_code_block else "No" }}
+{% if issue.possible_duplicate %}
+- **Possibly related to:** [<code>{{ issue.possible_duplicate.reference_text }}</code>]({{ issue.possible_duplicate.redirect_url }}) (similarity: {{ "%.2f"|format(issue.possible_duplicate.similarity) }})
+{% endif %}
 
 {{ issue.summary }}
 

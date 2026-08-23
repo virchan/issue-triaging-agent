@@ -223,6 +223,27 @@ class GitHubClient:
                 "GitHub returned an unexpected issue-creation response."
             ) from error
 
+    def fetch_issue(self, owner: str, repo: str, issue_number: int) -> GitHubIssue:
+        """Fetch a single issue's full content by number.
+
+        Unlike get_issue_state (state only), this returns the same
+        GitHubIssue shape as the search/window-based fetch methods -
+        needed wherever a specific, already-known issue number has to be
+        looked up directly rather than discovered by a query (e.g. the
+        duplicate-detection eval script, scripts/eval_duplicate_heuristic.py).
+        """
+
+        try:
+            response = self._client.get(f"/repos/{owner}/{repo}/issues/{issue_number}")
+            response.raise_for_status()
+            return _parse_issue(response.json())
+        except httpx.HTTPError as error:
+            raise GitHubClientError("GitHub could not fetch the issue.") from error
+        except (KeyError, TypeError, ValueError) as error:
+            raise GitHubClientError(
+                "GitHub returned an unexpected issue response."
+            ) from error
+
     def get_issue_state(self, owner: str, repo: str, issue_number: int) -> str:
         """Return 'open' or 'closed' for the given issue."""
 

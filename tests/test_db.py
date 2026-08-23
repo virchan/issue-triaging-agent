@@ -7,19 +7,24 @@ import pytest
 
 from src.db import (
     connect,
+    get_all_issue_embeddings,
     get_all_reviewed_judgments,
     get_authoritative_correction_digest,
     get_correction_field_counts,
+    get_issue_embedding,
     get_judged_issues_by_numbers,
     get_judgment_id_for_issue_number,
     get_recent_reviewed_judgments,
     get_rejudge_context,
     get_unreviewed_digests,
     mark_corrections_superseded,
+    prune_old_issue_embeddings,
     save_correction,
+    save_issue_embedding,
     save_issue_snapshot,
     save_issue_snapshots,
     set_correction_changed_fields,
+    set_possible_duplicate,
     update_judgment,
 )
 from src.github_client import GitHubIssue
@@ -42,6 +47,75 @@ def _mock_connection(mocker: Any) -> Any:
     connection = mocker.MagicMock()
     cursor = connection.cursor.return_value.__enter__.return_value
     return connection, cursor
+
+
+def test_get_issue_embedding_returns_the_stored_vector(mocker: Any) -> None:
+    connection, cursor = _mock_connection(mocker)
+    cursor.fetchone.return_value = ([0.1, 0.2, 0.3],)
+
+    assert get_issue_embedding(connection, 501) == [0.1, 0.2, 0.3]
+
+
+def test_get_issue_embedding_returns_none_when_absent(mocker: Any) -> None:
+    connection, cursor = _mock_connection(mocker)
+    cursor.fetchone.return_value = None
+
+    assert get_issue_embedding(connection, 501) is None
+
+
+def test_save_issue_embedding_upserts_on_issue_id(mocker: Any) -> None:
+    connection, cursor = _mock_connection(mocker)
+
+    save_issue_embedding(connection, 501, "gemini-embedding-001", [0.1, 0.2])
+
+    sql, params = cursor.execute.call_args.args
+    assert "ON CONFLICT (issue_id) DO UPDATE" in sql
+    assert params == (501, "gemini-embedding-001", [0.1, 0.2])
+
+
+def test_get_all_issue_embeddings_maps_rows(mocker: Any) -> None:
+    connection, cursor = _mock_connection(mocker)
+    cursor.fetchall.return_value = [
+        (1, 34649, [0.1, 0.2]),
+        (2, 34650, [0.3, 0.4]),
+    ]
+
+    result = get_all_issue_embeddings(connection)
+
+    assert result == [(1, 34649, [0.1, 0.2]), (2, 34650, [0.3, 0.4])]
+
+
+def test_set_possible_duplicate_updates_the_judgment_row(mocker: Any) -> None:
+    connection, cursor = _mock_connection(mocker)
+
+    set_possible_duplicate(connection, 501, 34649, 0.87)
+
+    sql, params = cursor.execute.call_args.args
+    assert "UPDATE judgments" in sql
+    assert "possible_duplicate_number" in sql
+    assert params == (34649, 0.87, 501)
+
+
+def test_set_possible_duplicate_can_clear_to_none(mocker: Any) -> None:
+    connection, cursor = _mock_connection(mocker)
+
+    set_possible_duplicate(connection, 501, None, None)
+
+    _, params = cursor.execute.call_args.args
+    assert params == (None, None, 501)
+
+
+def test_prune_old_issue_embeddings_returns_the_deleted_count(mocker: Any) -> None:
+    connection, cursor = _mock_connection(mocker)
+    cursor.rowcount = 3
+    cutoff = dt.datetime(2024, 8, 23, tzinfo=dt.UTC)
+
+    deleted = prune_old_issue_embeddings(connection, cutoff)
+
+    assert deleted == 3
+    sql, params = cursor.execute.call_args.args
+    assert "DELETE FROM issue_embeddings" in sql
+    assert params == (cutoff,)
 
 
 def test_save_issue_snapshot_returns_new_id_on_insert(
@@ -486,6 +560,8 @@ def test_get_judged_issues_by_numbers_maps_rows(mocker: Any) -> None:
             "low",
             "rationale",
             0.95,
+            None,
+            None,
         ),
     ]
 

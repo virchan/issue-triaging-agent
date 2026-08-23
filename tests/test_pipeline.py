@@ -56,6 +56,13 @@ def connection(mocker: Any) -> Any:
     return mocker.Mock()
 
 
+@pytest.fixture
+def issue_embedder(mocker: Any) -> Any:
+    embedder = mocker.Mock()
+    embedder.embed.return_value = [0.1, 0.2, 0.3]
+    return embedder
+
+
 @pytest.fixture(autouse=True)
 def no_recent_examples(mocker: Any) -> Any:
     """Default: no reviewed history yet. Individual tests override this."""
@@ -63,8 +70,26 @@ def no_recent_examples(mocker: Any) -> Any:
     return mocker.patch("src.pipeline.get_recent_reviewed_judgments", return_value=[])
 
 
+@pytest.fixture(autouse=True)
+def no_duplicate_candidates(mocker: Any) -> Any:
+    """Default: an empty embedding pool, no existing embedding for the
+    issue being judged - the duplicate-candidate lookup still runs, it
+    just always finds nothing to report. Dedicated tests further below
+    override these to exercise the real lookup/store behavior."""
+
+    mocker.patch("src.pipeline.get_issue_embedding", return_value=None)
+    mocker.patch("src.pipeline.save_issue_embedding")
+    mocker.patch("src.pipeline.get_all_issue_embeddings", return_value=[])
+    mocker.patch("src.pipeline.set_possible_duplicate")
+
+
 def test_fetch_and_judge_logs_poll_run_summary(
-    mocker: Any, github_client: Any, gemini_judge: Any, connection: Any, caplog: Any
+    mocker: Any,
+    github_client: Any,
+    gemini_judge: Any,
+    issue_embedder: Any,
+    connection: Any,
+    caplog: Any,
 ) -> None:
     github_client.fetch_issues_created_between.return_value = [_issue(1, "human")]
     mocker.patch("src.pipeline.save_issue_snapshots", return_value={1: 101})
@@ -75,6 +100,7 @@ def test_fetch_and_judge_logs_poll_run_summary(
         fetch_and_judge(
             github_client=github_client,
             gemini_judge=gemini_judge,
+            issue_embedder=issue_embedder,
             connection=connection,
             owner="scikit-learn",
             repo="scikit-learn",
@@ -96,7 +122,11 @@ def test_fetch_and_judge_logs_poll_run_summary(
 
 
 def test_fetch_and_judge_happy_path(
-    mocker: Any, github_client: Any, gemini_judge: Any, connection: Any
+    mocker: Any,
+    github_client: Any,
+    gemini_judge: Any,
+    issue_embedder: Any,
+    connection: Any,
 ) -> None:
     non_bot = _issue(1, "human")
     bot = _issue(2, "scikit-learn-bot")
@@ -111,6 +141,7 @@ def test_fetch_and_judge_happy_path(
     result = fetch_and_judge(
         github_client=github_client,
         gemini_judge=gemini_judge,
+        issue_embedder=issue_embedder,
         connection=connection,
         owner="scikit-learn",
         repo="scikit-learn",
@@ -141,7 +172,11 @@ def test_fetch_and_judge_happy_path(
 
 
 def test_fetch_and_judge_passes_label_through_to_the_fetch(
-    mocker: Any, github_client: Any, gemini_judge: Any, connection: Any
+    mocker: Any,
+    github_client: Any,
+    gemini_judge: Any,
+    issue_embedder: Any,
+    connection: Any,
 ) -> None:
     github_client.fetch_issues_created_between.return_value = []
     mocker.patch("src.pipeline.save_issue_snapshots", return_value={})
@@ -149,6 +184,7 @@ def test_fetch_and_judge_passes_label_through_to_the_fetch(
     fetch_and_judge(
         github_client=github_client,
         gemini_judge=gemini_judge,
+        issue_embedder=issue_embedder,
         connection=connection,
         owner="scikit-learn",
         repo="scikit-learn",
@@ -163,7 +199,11 @@ def test_fetch_and_judge_passes_label_through_to_the_fetch(
 
 
 def test_fetch_and_judge_passes_recent_examples_to_every_judge_call(
-    mocker: Any, github_client: Any, gemini_judge: Any, connection: Any
+    mocker: Any,
+    github_client: Any,
+    gemini_judge: Any,
+    issue_embedder: Any,
+    connection: Any,
 ) -> None:
     github_client.fetch_issues_created_between.return_value = [_issue(1), _issue(2)]
     mocker.patch("src.pipeline.save_issue_snapshots", return_value={1: 101, 2: 102})
@@ -185,6 +225,7 @@ def test_fetch_and_judge_passes_recent_examples_to_every_judge_call(
     fetch_and_judge(
         github_client=github_client,
         gemini_judge=gemini_judge,
+        issue_embedder=issue_embedder,
         connection=connection,
         owner="scikit-learn",
         repo="scikit-learn",
@@ -200,7 +241,11 @@ def test_fetch_and_judge_passes_recent_examples_to_every_judge_call(
 
 
 def test_fetch_and_judge_skips_already_judged(
-    mocker: Any, github_client: Any, gemini_judge: Any, connection: Any
+    mocker: Any,
+    github_client: Any,
+    gemini_judge: Any,
+    issue_embedder: Any,
+    connection: Any,
 ) -> None:
     issue = _issue(1)
     github_client.fetch_issues_created_between.return_value = [issue]
@@ -211,6 +256,7 @@ def test_fetch_and_judge_skips_already_judged(
     result = fetch_and_judge(
         github_client=github_client,
         gemini_judge=gemini_judge,
+        issue_embedder=issue_embedder,
         connection=connection,
         owner="scikit-learn",
         repo="scikit-learn",
@@ -225,7 +271,11 @@ def test_fetch_and_judge_skips_already_judged(
 
 
 def test_fetch_and_judge_continues_after_single_failure(
-    mocker: Any, github_client: Any, gemini_judge: Any, connection: Any
+    mocker: Any,
+    github_client: Any,
+    gemini_judge: Any,
+    issue_embedder: Any,
+    connection: Any,
 ) -> None:
     github_client.fetch_issues_created_between.return_value = [_issue(1), _issue(2)]
     mocker.patch("src.pipeline.save_issue_snapshots", return_value={1: 101, 2: 102})
@@ -240,6 +290,7 @@ def test_fetch_and_judge_continues_after_single_failure(
     result = fetch_and_judge(
         github_client=github_client,
         gemini_judge=gemini_judge,
+        issue_embedder=issue_embedder,
         connection=connection,
         owner="scikit-learn",
         repo="scikit-learn",
@@ -253,7 +304,11 @@ def test_fetch_and_judge_continues_after_single_failure(
 
 
 def test_fetch_and_judge_handles_unavailable_error(
-    mocker: Any, github_client: Any, gemini_judge: Any, connection: Any
+    mocker: Any,
+    github_client: Any,
+    gemini_judge: Any,
+    issue_embedder: Any,
+    connection: Any,
 ) -> None:
     github_client.fetch_issues_created_between.return_value = [_issue(1)]
     mocker.patch("src.pipeline.save_issue_snapshots", return_value={1: 101})
@@ -265,6 +320,7 @@ def test_fetch_and_judge_handles_unavailable_error(
     result = fetch_and_judge(
         github_client=github_client,
         gemini_judge=gemini_judge,
+        issue_embedder=issue_embedder,
         connection=connection,
         owner="scikit-learn",
         repo="scikit-learn",
@@ -281,7 +337,11 @@ def test_fetch_and_judge_handles_unavailable_error(
 
 
 def test_fetch_and_judge_backlog_fetches_newest_first_and_judges_candidates(
-    mocker: Any, github_client: Any, gemini_judge: Any, connection: Any
+    mocker: Any,
+    github_client: Any,
+    gemini_judge: Any,
+    issue_embedder: Any,
+    connection: Any,
 ) -> None:
     github_client.fetch_open_issues_with_label.return_value = [
         _issue(10, "human"),
@@ -294,6 +354,7 @@ def test_fetch_and_judge_backlog_fetches_newest_first_and_judges_candidates(
     result, judged_numbers = fetch_and_judge_backlog(
         github_client=github_client,
         gemini_judge=gemini_judge,
+        issue_embedder=issue_embedder,
         connection=connection,
         owner="scikit-learn",
         repo="scikit-learn",
@@ -309,7 +370,11 @@ def test_fetch_and_judge_backlog_fetches_newest_first_and_judges_candidates(
 
 
 def test_fetch_and_judge_backlog_reuses_already_judged_candidates(
-    mocker: Any, github_client: Any, gemini_judge: Any, connection: Any
+    mocker: Any,
+    github_client: Any,
+    gemini_judge: Any,
+    issue_embedder: Any,
+    connection: Any,
 ) -> None:
     """Regression test: a candidate already judged in a prior run is
     still included (reused, not excluded) - it must not silently vanish
@@ -328,6 +393,7 @@ def test_fetch_and_judge_backlog_reuses_already_judged_candidates(
     _, judged_numbers = fetch_and_judge_backlog(
         github_client=github_client,
         gemini_judge=gemini_judge,
+        issue_embedder=issue_embedder,
         connection=connection,
         owner="scikit-learn",
         repo="scikit-learn",
@@ -339,7 +405,11 @@ def test_fetch_and_judge_backlog_reuses_already_judged_candidates(
 
 
 def test_fetch_and_judge_backlog_respects_the_cap(
-    mocker: Any, github_client: Any, gemini_judge: Any, connection: Any
+    mocker: Any,
+    github_client: Any,
+    gemini_judge: Any,
+    issue_embedder: Any,
+    connection: Any,
 ) -> None:
     github_client.fetch_open_issues_with_label.return_value = [
         _issue(n, "human") for n in range(10, 20)
@@ -354,6 +424,7 @@ def test_fetch_and_judge_backlog_respects_the_cap(
     _, judged_numbers = fetch_and_judge_backlog(
         github_client=github_client,
         gemini_judge=gemini_judge,
+        issue_embedder=issue_embedder,
         connection=connection,
         owner="scikit-learn",
         repo="scikit-learn",
@@ -366,7 +437,11 @@ def test_fetch_and_judge_backlog_respects_the_cap(
 
 
 def test_fetch_and_judge_backlog_excludes_bots(
-    mocker: Any, github_client: Any, gemini_judge: Any, connection: Any
+    mocker: Any,
+    github_client: Any,
+    gemini_judge: Any,
+    issue_embedder: Any,
+    connection: Any,
 ) -> None:
     non_bot = _issue(10, "human")
     bot = _issue(11, "scikit-learn-bot")
@@ -380,6 +455,7 @@ def test_fetch_and_judge_backlog_excludes_bots(
     result, judged_numbers = fetch_and_judge_backlog(
         github_client=github_client,
         gemini_judge=gemini_judge,
+        issue_embedder=issue_embedder,
         connection=connection,
         owner="scikit-learn",
         repo="scikit-learn",
@@ -394,7 +470,11 @@ def test_fetch_and_judge_backlog_excludes_bots(
 
 
 def test_fetch_and_judge_backlog_returns_only_successful_judgments(
-    mocker: Any, github_client: Any, gemini_judge: Any, connection: Any
+    mocker: Any,
+    github_client: Any,
+    gemini_judge: Any,
+    issue_embedder: Any,
+    connection: Any,
 ) -> None:
     github_client.fetch_open_issues_with_label.return_value = [
         _issue(10, "human"),
@@ -408,6 +488,7 @@ def test_fetch_and_judge_backlog_returns_only_successful_judgments(
     result, judged_numbers = fetch_and_judge_backlog(
         github_client=github_client,
         gemini_judge=gemini_judge,
+        issue_embedder=issue_embedder,
         connection=connection,
         owner="scikit-learn",
         repo="scikit-learn",
@@ -419,7 +500,11 @@ def test_fetch_and_judge_backlog_returns_only_successful_judgments(
 
 
 def test_fetch_and_judge_respects_an_optional_cap(
-    mocker: Any, github_client: Any, gemini_judge: Any, connection: Any
+    mocker: Any,
+    github_client: Any,
+    gemini_judge: Any,
+    issue_embedder: Any,
+    connection: Any,
 ) -> None:
     github_client.fetch_issues_created_between.return_value = [
         _issue(n, "human") for n in range(1, 6)
@@ -434,6 +519,7 @@ def test_fetch_and_judge_respects_an_optional_cap(
     result = fetch_and_judge(
         github_client=github_client,
         gemini_judge=gemini_judge,
+        issue_embedder=issue_embedder,
         connection=connection,
         owner="scikit-learn",
         repo="scikit-learn",
@@ -444,3 +530,146 @@ def test_fetch_and_judge_respects_an_optional_cap(
 
     assert result.judged == 2
     assert gemini_judge.judge.call_count == 2
+
+
+def test_fetch_and_judge_embeds_a_freshly_judged_issue_and_stores_it(
+    mocker: Any,
+    github_client: Any,
+    gemini_judge: Any,
+    issue_embedder: Any,
+    connection: Any,
+) -> None:
+    github_client.fetch_issues_created_between.return_value = [_issue(1, "human")]
+    mocker.patch("src.pipeline.save_issue_snapshots", return_value={1: 101})
+    mocker.patch("src.pipeline.has_judgment", return_value=False)
+    mocker.patch("src.pipeline.save_judgment", return_value=201)
+    mocker.patch("src.pipeline.get_issue_embedding", return_value=None)
+    save_embedding = mocker.patch("src.pipeline.save_issue_embedding")
+    mocker.patch("src.pipeline.get_all_issue_embeddings", return_value=[])
+    set_dup = mocker.patch("src.pipeline.set_possible_duplicate")
+
+    fetch_and_judge(
+        github_client=github_client,
+        gemini_judge=gemini_judge,
+        issue_embedder=issue_embedder,
+        connection=connection,
+        owner="scikit-learn",
+        repo="scikit-learn",
+        window_start=WINDOW_START,
+        window_end=WINDOW_END,
+    )
+
+    issue_embedder.embed.assert_called_once()
+    save_embedding.assert_called_once_with(
+        connection, 101, "gemini-embedding-001", [0.1, 0.2, 0.3]
+    )
+    # Empty pool - nothing to report.
+    set_dup.assert_called_once_with(connection, 201, None, None)
+
+
+def test_fetch_and_judge_reuses_an_existing_embedding_without_re_embedding(
+    mocker: Any,
+    github_client: Any,
+    gemini_judge: Any,
+    issue_embedder: Any,
+    connection: Any,
+) -> None:
+    github_client.fetch_issues_created_between.return_value = [_issue(1, "human")]
+    mocker.patch("src.pipeline.save_issue_snapshots", return_value={1: 101})
+    mocker.patch("src.pipeline.has_judgment", return_value=False)
+    mocker.patch("src.pipeline.save_judgment", return_value=201)
+    mocker.patch("src.pipeline.get_issue_embedding", return_value=[0.9, 0.9, 0.9])
+    save_embedding = mocker.patch("src.pipeline.save_issue_embedding")
+    mocker.patch("src.pipeline.get_all_issue_embeddings", return_value=[])
+    mocker.patch("src.pipeline.set_possible_duplicate")
+
+    fetch_and_judge(
+        github_client=github_client,
+        gemini_judge=gemini_judge,
+        issue_embedder=issue_embedder,
+        connection=connection,
+        owner="scikit-learn",
+        repo="scikit-learn",
+        window_start=WINDOW_START,
+        window_end=WINDOW_END,
+    )
+
+    # An issue already covered by the backfill (or a prior judgment)
+    # never gets re-embedded - an avoidable API call.
+    issue_embedder.embed.assert_not_called()
+    save_embedding.assert_not_called()
+
+
+def test_fetch_and_judge_reports_the_best_match_excluding_itself(
+    mocker: Any,
+    github_client: Any,
+    gemini_judge: Any,
+    issue_embedder: Any,
+    connection: Any,
+) -> None:
+    github_client.fetch_issues_created_between.return_value = [_issue(1, "human")]
+    mocker.patch("src.pipeline.save_issue_snapshots", return_value={1: 101})
+    mocker.patch("src.pipeline.has_judgment", return_value=False)
+    mocker.patch("src.pipeline.save_judgment", return_value=201)
+    mocker.patch("src.pipeline.get_issue_embedding", return_value=None)
+    issue_embedder.embed.return_value = [1.0, 0.0]
+    mocker.patch("src.pipeline.save_issue_embedding")
+    mocker.patch(
+        "src.pipeline.get_all_issue_embeddings",
+        # Includes issue #1 itself (as if it had somehow already been
+        # stored) - must be excluded from its own candidate pool, not
+        # trivially "matched" against itself.
+        return_value=[(9001, 1, [1.0, 0.0]), (9002, 55, [0.99, 0.01])],
+    )
+    set_dup = mocker.patch("src.pipeline.set_possible_duplicate")
+
+    fetch_and_judge(
+        github_client=github_client,
+        gemini_judge=gemini_judge,
+        issue_embedder=issue_embedder,
+        connection=connection,
+        owner="scikit-learn",
+        repo="scikit-learn",
+        window_start=WINDOW_START,
+        window_end=WINDOW_END,
+    )
+
+    args = set_dup.call_args.args
+    assert args[0] == connection
+    assert args[1] == 201
+    assert args[2] == 55  # not 1 - itself was excluded
+
+
+def test_fetch_and_judge_does_not_fail_the_judgment_when_embedding_fails(
+    mocker: Any,
+    github_client: Any,
+    gemini_judge: Any,
+    issue_embedder: Any,
+    connection: Any,
+) -> None:
+    github_client.fetch_issues_created_between.return_value = [_issue(1, "human")]
+    mocker.patch("src.pipeline.save_issue_snapshots", return_value={1: 101})
+    mocker.patch("src.pipeline.has_judgment", return_value=False)
+    save_judgment = mocker.patch("src.pipeline.save_judgment", return_value=201)
+    mocker.patch("src.pipeline.get_issue_embedding", return_value=None)
+    issue_embedder.embed.side_effect = GeminiUnavailableError("embedding service down")
+    set_dup = mocker.patch("src.pipeline.set_possible_duplicate")
+
+    result = fetch_and_judge(
+        github_client=github_client,
+        gemini_judge=gemini_judge,
+        issue_embedder=issue_embedder,
+        connection=connection,
+        owner="scikit-learn",
+        repo="scikit-learn",
+        window_start=WINDOW_START,
+        window_end=WINDOW_END,
+    )
+
+    # The judgment itself still succeeded - an embedding failure is a
+    # separate, lower-priority concern that must never retroactively
+    # fail something that already saved.
+    assert result.judged == 1
+    assert result.failures == []
+    save_judgment.assert_called_once()
+    set_dup.assert_not_called()

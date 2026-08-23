@@ -11,8 +11,10 @@ from src.db import (
     UnreviewedDigest,
     get_recent_reviewed_judgments,
     get_unreviewed_digests,
+    prune_old_issue_embeddings,
 )
 from src.digest import DigestContent, build_digest, publish_digest
+from src.embeddings import IssueEmbedder
 from src.gemini_client import GeminiJudge
 from src.github_client import GitHubClient
 from src.pipeline import (
@@ -21,6 +23,16 @@ from src.pipeline import (
     fetch_and_judge,
     fetch_and_judge_backlog,
 )
+
+# How far back a stored embedding stays useful as a duplicate-candidate -
+# matches scripts/backfill_issue_embeddings.py's own backfill horizon
+# (LOG.md entry 75: the operator's real adjudicated examples showed
+# duplicates come from scikit-learn's broader history, not just recently
+# judged issues - but "broader" still isn't "forever"). Applied as a
+# rolling window, not a one-time cutoff, so storage stays bounded
+# indefinitely rather than growing forever as new issues get embedded
+# each day.
+EMBEDDING_RETENTION = dt.timedelta(days=365 * 2)
 
 # Every poll looks back this far from "now", regardless of when the
 # previous run happened. Matches the daily 09:00 PDT cadence: a shorter
@@ -64,6 +76,7 @@ def run_daily_cycle(
     github_client: GitHubClient,
     shadow_client: GitHubClient,
     gemini_judge: GeminiJudge,
+    issue_embedder: IssueEmbedder,
     connection: psycopg.Connection[Any],
     source_owner: str,
     source_repo: str,
@@ -114,6 +127,12 @@ def run_daily_cycle(
 
     github_client must be read-only (scikit-learn); shadow_client must
     be authenticated with SHADOW_REPO_TOKEN (shadow repo writes).
+
+    issue_embedder computes the duplicate-candidate suggestion for each
+    freshly judged issue (see src.pipeline._find_and_record_possible_duplicate)
+    and, every cycle regardless of what else happened, its stored
+    embeddings get pruned to a rolling EMBEDDING_RETENTION window so
+    storage doesn't grow forever.
 
     `manually_triggered` is True only when this call came from app.py's
     POST /trigger (the on-demand path), never from the scheduled Cloud
@@ -170,6 +189,7 @@ def run_daily_cycle(
     pipeline_result = fetch_and_judge(
         github_client=github_client,
         gemini_judge=gemini_judge,
+        issue_embedder=issue_embedder,
         connection=connection,
         owner=source_owner,
         repo=source_repo,
@@ -185,11 +205,17 @@ def run_daily_cycle(
         backlog_result, backlog_issue_numbers = fetch_and_judge_backlog(
             github_client=github_client,
             gemini_judge=gemini_judge,
+            issue_embedder=issue_embedder,
             connection=connection,
             owner=source_owner,
             repo=source_repo,
             label=label,
         )
+
+    # Keeps issue_embeddings storage bounded to a rolling window rather
+    # than growing forever - safe to run every cycle regardless of
+    # whether anything was actually judged this time.
+    prune_old_issue_embeddings(connection, window_end - EMBEDDING_RETENTION)
 
     digest = build_digest(
         connection,

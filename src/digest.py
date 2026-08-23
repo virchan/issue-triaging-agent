@@ -66,6 +66,15 @@ def _redirect_url(html_url: str) -> str:
     return html_url.replace("https://github.com/", "https://redirect.github.com/", 1)
 
 
+def _redirect_issue_url(owner: str, repo: str, number: int) -> str:
+    """Build a redirect.github.com URL directly from owner/repo/number -
+    used for the possible-duplicate reference, where only a github_number
+    is stored (JudgedIssue.possible_duplicate_number), not a full
+    html_url the way the issue's own reference has."""
+
+    return f"https://redirect.github.com/{owner}/{repo}/issues/{number}"
+
+
 def _has_code_block(body: str | None) -> bool:
     """Deterministic, not LLM-judged: does the issue body contain at
     least one fenced code block (a pair of triple-backtick markers)?
@@ -95,6 +104,12 @@ def _group_issues_by_priority(issues: list[JudgedIssue]) -> list[dict[str, Any]]
     confirmed to not create a cross-reference (LOG.md entry 71); keeping
     a second, redundant "Link:" field showing the same URL twice per
     issue wasn't worth it once that was independently confirmed live.
+
+    possible_duplicate (None unless set) is a ranked suggestion, not a
+    classification (LOG.md entries 73-76) - the most similar other issue
+    found by embedding similarity, above a loose sanity floor. Computed
+    once at judgment time (src.pipeline._find_and_record_possible_duplicate),
+    not here - this only renders whatever was already stored.
     """
 
     ordered = sorted(issues, key=lambda item: _PRIORITY_ORDER[item.judgment.priority])
@@ -123,6 +138,19 @@ def _group_issues_by_priority(issues: list[JudgedIssue]) -> list[dict[str, Any]]
                 "suggested_label": judgment.suggested_label,
                 "confidence": judgment.confidence,
                 "has_code_block": _has_code_block(item.body),
+                "possible_duplicate": (
+                    {
+                        "reference_text": f"{item.repo_name}/{item.possible_duplicate_number}",
+                        "redirect_url": _redirect_issue_url(
+                            item.repo_owner,
+                            item.repo_name,
+                            item.possible_duplicate_number,
+                        ),
+                        "similarity": item.possible_duplicate_similarity,
+                    }
+                    if item.possible_duplicate_number is not None
+                    else None
+                ),
                 "summary": judgment.summary,
                 "rationale": judgment.rationale,
             }

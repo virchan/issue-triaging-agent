@@ -18,6 +18,7 @@ from dotenv import load_dotenv
 
 from src.daily_job import run_daily_cycle
 from src.db import connect
+from src.embeddings import IssueEmbedder
 from src.gemini_client import GeminiJudge
 from src.github_client import GitHubClient
 from src.logging_config import configure_logging
@@ -45,10 +46,12 @@ def main() -> None:
             gemini_judge = GeminiJudge(
                 model=GEMINI_MODEL, api_key=os.environ["GEMINI_API_KEY"]
             )
+            issue_embedder = IssueEmbedder(api_key=os.environ["GEMINI_API_KEY"])
             result = run_daily_cycle(
                 github_client=github_client,
                 shadow_client=shadow_client,
                 gemini_judge=gemini_judge,
+                issue_embedder=issue_embedder,
                 connection=connection,
                 source_owner=SOURCE_OWNER,
                 source_repo=SOURCE_REPO,

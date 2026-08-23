@@ -29,14 +29,25 @@ def _unreviewed(
 
 
 @pytest.fixture
-def clients_and_connection(mocker: Any) -> tuple[Any, Any, Any, Any]:
-    return mocker.Mock(), mocker.Mock(), mocker.Mock(), mocker.Mock()
+def clients_and_connection(mocker: Any) -> tuple[Any, Any, Any, Any, Any]:
+    return mocker.Mock(), mocker.Mock(), mocker.Mock(), mocker.Mock(), mocker.Mock()
+
+
+@pytest.fixture(autouse=True)
+def no_embedding_prune(mocker: Any) -> Any:
+    """Every cycle prunes old embeddings regardless of what else happened
+    (see EMBEDDING_RETENTION) - mocked by default so tests focused on
+    other behavior don't need a real connection for it."""
+
+    return mocker.patch("src.daily_job.prune_old_issue_embeddings", return_value=0)
 
 
 def test_run_daily_cycle_runs_forward_pipeline_and_checks_unreviewed_digests(
-    mocker: Any, clients_and_connection: tuple[Any, Any, Any, Any]
+    mocker: Any, clients_and_connection: tuple[Any, Any, Any, Any, Any]
 ) -> None:
-    github_client, shadow_client, gemini_judge, connection = clients_and_connection
+    github_client, shadow_client, gemini_judge, issue_embedder, connection = (
+        clients_and_connection
+    )
 
     pipeline_result = PipelineResult(
         fetched=2, bot_excluded=0, judged=2, already_judged=0
@@ -67,6 +78,7 @@ def test_run_daily_cycle_runs_forward_pipeline_and_checks_unreviewed_digests(
         github_client=github_client,
         shadow_client=shadow_client,
         gemini_judge=gemini_judge,
+        issue_embedder=issue_embedder,
         connection=connection,
         source_owner="scikit-learn",
         source_repo="scikit-learn",
@@ -92,9 +104,11 @@ def test_run_daily_cycle_runs_forward_pipeline_and_checks_unreviewed_digests(
 
 
 def test_run_daily_cycle_with_no_unreviewed_digests(
-    mocker: Any, clients_and_connection: tuple[Any, Any, Any, Any]
+    mocker: Any, clients_and_connection: tuple[Any, Any, Any, Any, Any]
 ) -> None:
-    github_client, shadow_client, gemini_judge, connection = clients_and_connection
+    github_client, shadow_client, gemini_judge, issue_embedder, connection = (
+        clients_and_connection
+    )
 
     mocker.patch("src.daily_job.fetch_and_judge", return_value=_EMPTY)
     mocker.patch(
@@ -111,6 +125,7 @@ def test_run_daily_cycle_with_no_unreviewed_digests(
         github_client=github_client,
         shadow_client=shadow_client,
         gemini_judge=gemini_judge,
+        issue_embedder=issue_embedder,
         connection=connection,
         source_owner="scikit-learn",
         source_repo="scikit-learn",
@@ -125,13 +140,15 @@ def test_run_daily_cycle_with_no_unreviewed_digests(
 
 
 def test_run_daily_cycle_uses_a_fixed_lookback_window(
-    mocker: Any, clients_and_connection: tuple[Any, Any, Any, Any]
+    mocker: Any, clients_and_connection: tuple[Any, Any, Any, Any, Any]
 ) -> None:
     """Regression test for the watermark-chain redesign: with no WIP
     digest, window_start is WINDOW_DURATION back from "now", not
     derived from any previous digest."""
 
-    github_client, shadow_client, gemini_judge, connection = clients_and_connection
+    github_client, shadow_client, gemini_judge, issue_embedder, connection = (
+        clients_and_connection
+    )
 
     fetch_and_judge_mock = mocker.patch(
         "src.daily_job.fetch_and_judge", return_value=_EMPTY
@@ -151,6 +168,7 @@ def test_run_daily_cycle_uses_a_fixed_lookback_window(
         github_client=github_client,
         shadow_client=shadow_client,
         gemini_judge=gemini_judge,
+        issue_embedder=issue_embedder,
         connection=connection,
         source_owner="scikit-learn",
         source_repo="scikit-learn",
@@ -173,9 +191,11 @@ def test_run_daily_cycle_uses_a_fixed_lookback_window(
 
 
 def test_run_daily_cycle_does_not_trigger_backlog_when_new_issues_found(
-    mocker: Any, clients_and_connection: tuple[Any, Any, Any, Any]
+    mocker: Any, clients_and_connection: tuple[Any, Any, Any, Any, Any]
 ) -> None:
-    github_client, shadow_client, gemini_judge, connection = clients_and_connection
+    github_client, shadow_client, gemini_judge, issue_embedder, connection = (
+        clients_and_connection
+    )
 
     mocker.patch(
         "src.daily_job.fetch_and_judge",
@@ -195,6 +215,7 @@ def test_run_daily_cycle_does_not_trigger_backlog_when_new_issues_found(
         github_client=github_client,
         shadow_client=shadow_client,
         gemini_judge=gemini_judge,
+        issue_embedder=issue_embedder,
         connection=connection,
         source_owner="scikit-learn",
         source_repo="scikit-learn",
@@ -208,9 +229,11 @@ def test_run_daily_cycle_does_not_trigger_backlog_when_new_issues_found(
 
 
 def test_run_daily_cycle_triggers_backlog_when_nothing_new_found(
-    mocker: Any, clients_and_connection: tuple[Any, Any, Any, Any]
+    mocker: Any, clients_and_connection: tuple[Any, Any, Any, Any, Any]
 ) -> None:
-    github_client, shadow_client, gemini_judge, connection = clients_and_connection
+    github_client, shadow_client, gemini_judge, issue_embedder, connection = (
+        clients_and_connection
+    )
 
     mocker.patch("src.daily_job.fetch_and_judge", return_value=_EMPTY)
     backlog_result = PipelineResult(
@@ -231,6 +254,7 @@ def test_run_daily_cycle_triggers_backlog_when_nothing_new_found(
         github_client=github_client,
         shadow_client=shadow_client,
         gemini_judge=gemini_judge,
+        issue_embedder=issue_embedder,
         connection=connection,
         source_owner="scikit-learn",
         source_repo="scikit-learn",
@@ -242,6 +266,7 @@ def test_run_daily_cycle_triggers_backlog_when_nothing_new_found(
     backlog_mock.assert_called_once_with(
         github_client=github_client,
         gemini_judge=gemini_judge,
+        issue_embedder=issue_embedder,
         connection=connection,
         owner="scikit-learn",
         repo="scikit-learn",
@@ -253,9 +278,11 @@ def test_run_daily_cycle_triggers_backlog_when_nothing_new_found(
 
 
 def test_run_daily_cycle_does_not_trigger_backlog_without_a_label(
-    mocker: Any, clients_and_connection: tuple[Any, Any, Any, Any]
+    mocker: Any, clients_and_connection: tuple[Any, Any, Any, Any, Any]
 ) -> None:
-    github_client, shadow_client, gemini_judge, connection = clients_and_connection
+    github_client, shadow_client, gemini_judge, issue_embedder, connection = (
+        clients_and_connection
+    )
 
     mocker.patch("src.daily_job.fetch_and_judge", return_value=_EMPTY)
     backlog_mock = mocker.patch("src.daily_job.fetch_and_judge_backlog")
@@ -270,6 +297,7 @@ def test_run_daily_cycle_does_not_trigger_backlog_without_a_label(
         github_client=github_client,
         shadow_client=shadow_client,
         gemini_judge=gemini_judge,
+        issue_embedder=issue_embedder,
         connection=connection,
         source_owner="scikit-learn",
         source_repo="scikit-learn",
@@ -286,9 +314,11 @@ def test_run_daily_cycle_does_not_trigger_backlog_without_a_label(
 
 
 def test_run_daily_cycle_applies_agent_triggered_label_by_default(
-    mocker: Any, clients_and_connection: tuple[Any, Any, Any, Any]
+    mocker: Any, clients_and_connection: tuple[Any, Any, Any, Any, Any]
 ) -> None:
-    github_client, shadow_client, gemini_judge, connection = clients_and_connection
+    github_client, shadow_client, gemini_judge, issue_embedder, connection = (
+        clients_and_connection
+    )
 
     mocker.patch(
         "src.daily_job.fetch_and_judge",
@@ -307,6 +337,7 @@ def test_run_daily_cycle_applies_agent_triggered_label_by_default(
         github_client=github_client,
         shadow_client=shadow_client,
         gemini_judge=gemini_judge,
+        issue_embedder=issue_embedder,
         connection=connection,
         source_owner="scikit-learn",
         source_repo="scikit-learn",
@@ -323,9 +354,11 @@ def test_run_daily_cycle_applies_agent_triggered_label_by_default(
 
 
 def test_run_daily_cycle_adds_manually_triggered_label_when_set(
-    mocker: Any, clients_and_connection: tuple[Any, Any, Any, Any]
+    mocker: Any, clients_and_connection: tuple[Any, Any, Any, Any, Any]
 ) -> None:
-    github_client, shadow_client, gemini_judge, connection = clients_and_connection
+    github_client, shadow_client, gemini_judge, issue_embedder, connection = (
+        clients_and_connection
+    )
 
     mocker.patch(
         "src.daily_job.fetch_and_judge",
@@ -344,6 +377,7 @@ def test_run_daily_cycle_adds_manually_triggered_label_when_set(
         github_client=github_client,
         shadow_client=shadow_client,
         gemini_judge=gemini_judge,
+        issue_embedder=issue_embedder,
         connection=connection,
         source_owner="scikit-learn",
         source_repo="scikit-learn",
@@ -361,13 +395,15 @@ def test_run_daily_cycle_adds_manually_triggered_label_when_set(
 
 
 def test_run_daily_cycle_omits_testing_label_when_toggled_off(
-    mocker: Any, clients_and_connection: tuple[Any, Any, Any, Any]
+    mocker: Any, clients_and_connection: tuple[Any, Any, Any, Any, Any]
 ) -> None:
     """STILL_TESTING is a one-line toggle for when the operator considers
     the system production-ready - confirm the label actually responds
     to it rather than being hardcoded into the list."""
 
-    github_client, shadow_client, gemini_judge, connection = clients_and_connection
+    github_client, shadow_client, gemini_judge, issue_embedder, connection = (
+        clients_and_connection
+    )
 
     mocker.patch("src.daily_job.STILL_TESTING", False)
     mocker.patch(
@@ -387,6 +423,7 @@ def test_run_daily_cycle_omits_testing_label_when_toggled_off(
         github_client=github_client,
         shadow_client=shadow_client,
         gemini_judge=gemini_judge,
+        issue_embedder=issue_embedder,
         connection=connection,
         source_owner="scikit-learn",
         source_repo="scikit-learn",
@@ -405,9 +442,11 @@ def test_run_daily_cycle_omits_testing_label_when_toggled_off(
 
 
 def test_run_daily_cycle_uses_most_recent_wip_window_end_as_start(
-    mocker: Any, clients_and_connection: tuple[Any, Any, Any, Any]
+    mocker: Any, clients_and_connection: tuple[Any, Any, Any, Any, Any]
 ) -> None:
-    github_client, shadow_client, gemini_judge, connection = clients_and_connection
+    github_client, shadow_client, gemini_judge, issue_embedder, connection = (
+        clients_and_connection
+    )
 
     older_wip = _unreviewed(
         3, 11, window_end=dt.datetime(2026, 8, 15, 0, 0, 0, tzinfo=dt.UTC)
@@ -441,6 +480,7 @@ def test_run_daily_cycle_uses_most_recent_wip_window_end_as_start(
         github_client=github_client,
         shadow_client=shadow_client,
         gemini_judge=gemini_judge,
+        issue_embedder=issue_embedder,
         connection=connection,
         source_owner="scikit-learn",
         source_repo="scikit-learn",
@@ -458,7 +498,7 @@ def test_run_daily_cycle_uses_most_recent_wip_window_end_as_start(
 
 
 def test_run_daily_cycle_excludes_a_wip_digest_closed_before_this_run(
-    mocker: Any, clients_and_connection: tuple[Any, Any, Any, Any]
+    mocker: Any, clients_and_connection: tuple[Any, Any, Any, Any, Any]
 ) -> None:
     """Regression test for a real bug found on the first live day under
     this design: the operator closed digest #13 before this run started,
@@ -469,7 +509,9 @@ def test_run_daily_cycle_excludes_a_wip_digest_closed_before_this_run(
     run first, and WIP detection must use
     its result, not the stale pre-pass list."""
 
-    github_client, shadow_client, gemini_judge, connection = clients_and_connection
+    github_client, shadow_client, gemini_judge, issue_embedder, connection = (
+        clients_and_connection
+    )
 
     closed_digest = _unreviewed(3, 13)
     mocker.patch("src.daily_job.get_unreviewed_digests", return_value=[closed_digest])
@@ -497,6 +539,7 @@ def test_run_daily_cycle_excludes_a_wip_digest_closed_before_this_run(
         github_client=github_client,
         shadow_client=shadow_client,
         gemini_judge=gemini_judge,
+        issue_embedder=issue_embedder,
         connection=connection,
         source_owner="scikit-learn",
         source_repo="scikit-learn",
@@ -526,13 +569,15 @@ def test_run_daily_cycle_excludes_a_wip_digest_closed_before_this_run(
 
 
 def test_run_daily_cycle_does_not_skip_backlog_when_no_wip_exists(
-    mocker: Any, clients_and_connection: tuple[Any, Any, Any, Any]
+    mocker: Any, clients_and_connection: tuple[Any, Any, Any, Any, Any]
 ) -> None:
     """Sanity check that the WIP branch above doesn't leak into the
     normal no-WIP path: backlog still runs when the window is empty and
     there's no unreviewed digest sitting open."""
 
-    github_client, shadow_client, gemini_judge, connection = clients_and_connection
+    github_client, shadow_client, gemini_judge, issue_embedder, connection = (
+        clients_and_connection
+    )
 
     mocker.patch("src.daily_job.get_unreviewed_digests", return_value=[])
     mocker.patch("src.daily_job.fetch_and_judge", return_value=_EMPTY)
@@ -549,6 +594,7 @@ def test_run_daily_cycle_does_not_skip_backlog_when_no_wip_exists(
         github_client=github_client,
         shadow_client=shadow_client,
         gemini_judge=gemini_judge,
+        issue_embedder=issue_embedder,
         connection=connection,
         source_owner="scikit-learn",
         source_repo="scikit-learn",
@@ -561,13 +607,15 @@ def test_run_daily_cycle_does_not_skip_backlog_when_no_wip_exists(
 
 
 def test_run_daily_cycle_reuses_unreviewed_digests_for_the_backward_pass(
-    mocker: Any, clients_and_connection: tuple[Any, Any, Any, Any]
+    mocker: Any, clients_and_connection: tuple[Any, Any, Any, Any, Any]
 ) -> None:
     """get_unreviewed_digests should only be called once per cycle - the
     same list drives both WIP detection and correction capture, rather
     than querying twice."""
 
-    github_client, shadow_client, gemini_judge, connection = clients_and_connection
+    github_client, shadow_client, gemini_judge, issue_embedder, connection = (
+        clients_and_connection
+    )
 
     get_unreviewed_mock = mocker.patch(
         "src.daily_job.get_unreviewed_digests", return_value=[]
@@ -584,6 +632,7 @@ def test_run_daily_cycle_reuses_unreviewed_digests_for_the_backward_pass(
         github_client=github_client,
         shadow_client=shadow_client,
         gemini_judge=gemini_judge,
+        issue_embedder=issue_embedder,
         connection=connection,
         source_owner="scikit-learn",
         source_repo="scikit-learn",

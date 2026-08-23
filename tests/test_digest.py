@@ -22,6 +22,8 @@ def _judged_issue(
     is_spam: bool = False,
     judgment_id: int = 1,
     body: str | None = None,
+    possible_duplicate_number: int | None = None,
+    possible_duplicate_similarity: float | None = None,
 ) -> JudgedIssue:
     return JudgedIssue(
         issue_id=number,
@@ -40,6 +42,8 @@ def _judged_issue(
             rationale="A rationale.",
             confidence=0.9,
         ),
+        possible_duplicate_number=possible_duplicate_number,
+        possible_duplicate_similarity=possible_duplicate_similarity,
     )
 
 
@@ -107,6 +111,24 @@ def test_format_digest_body_flags_a_code_snippet_deterministically() -> None:
     assert "**Contains a code snippet:** No" in section_2
     section_3 = body.split("### [<code>scikit-learn/3</code>")[1]
     assert "**Contains a code snippet:** No" in section_3
+
+
+def test_format_digest_body_renders_a_possible_duplicate_when_set() -> None:
+    issue = _judged_issue(
+        1, possible_duplicate_number=999, possible_duplicate_similarity=0.873
+    )
+
+    body = format_digest_body(dt.date(2026, 8, 4), [issue])
+
+    assert "**Possibly related to:**" in body
+    assert "<code>scikit-learn/999</code>" in body
+    assert "https://redirect.github.com/scikit-learn/scikit-learn/issues/999" in body
+    assert "(similarity: 0.87)" in body
+
+
+def test_format_digest_body_omits_possible_duplicate_when_unset() -> None:
+    body = format_digest_body(dt.date(2026, 8, 4), [_judged_issue(1)])
+    assert "Possibly related to" not in body
 
 
 def test_format_digest_body_does_not_flag_a_single_unclosed_backtick_fence() -> None:

@@ -171,6 +171,115 @@ def save_judgment(
         return existing[0]
 
 
+def get_issue_embedding(
+    connection: psycopg.Connection[Any], issue_id: int
+) -> list[float] | None:
+    """The stored embedding for one issue, if it has one - checked
+    before computing a new one (see src.duplicate_detection), so an
+    issue already covered by the backfill or a prior judgment never
+    gets re-embedded (an avoidable API call) just because it's being
+    judged for real now."""
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT embedding FROM issue_embeddings WHERE issue_id = %s",
+            (issue_id,),
+        )
+        row = cursor.fetchone()
+        return list(row[0]) if row is not None else None
+
+
+def save_issue_embedding(
+    connection: psycopg.Connection[Any],
+    issue_id: int,
+    model: str,
+    embedding: list[float],
+) -> None:
+    """Store an issue's embedding - upsert on issue_id, so re-running
+    the backfill or re-judging is safe to call unconditionally without
+    creating duplicate rows."""
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            INSERT INTO issue_embeddings (issue_id, model, embedding)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (issue_id) DO UPDATE
+            SET model = EXCLUDED.model, embedding = EXCLUDED.embedding,
+                created_at = now()
+            """,
+            (issue_id, model, embedding),
+        )
+
+
+def get_all_issue_embeddings(
+    connection: psycopg.Connection[Any],
+) -> list[tuple[int, int, list[float]]]:
+    """Every stored embedding, as (issue_id, github_number, embedding) -
+    the full candidate pool src.duplicate_detection.find_most_similar
+    compares a new issue's embedding against. Includes both backfilled
+    issues (scripts/backfill_issue_embeddings.py) and previously judged
+    ones - issue_embeddings doesn't distinguish the two."""
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT e.issue_id, i.github_number, e.embedding
+            FROM issue_embeddings e
+            JOIN issues i ON i.id = e.issue_id
+            """
+        )
+        return [(row[0], row[1], list(row[2])) for row in cursor.fetchall()]
+
+
+def set_possible_duplicate(
+    connection: psycopg.Connection[Any],
+    judgment_id: int,
+    github_number: int | None,
+    similarity: float | None,
+) -> None:
+    """Record the most similar issue found for a judgment, if any - a
+    ranked suggestion (see JudgedIssue.possible_duplicate_number's
+    docstring), not a classification. Both arguments None means no
+    candidate cleared the loose sanity floor."""
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            UPDATE judgments
+            SET possible_duplicate_number = %s, possible_duplicate_similarity = %s
+            WHERE id = %s
+            """,
+            (github_number, similarity, judgment_id),
+        )
+
+
+def prune_old_issue_embeddings(
+    connection: psycopg.Connection[Any], cutoff: dt.datetime
+) -> int:
+    """Delete embeddings for issues created before cutoff - keeps
+    storage bounded to a rolling window (see scripts/backfill_issue_embeddings.py's
+    2-year horizon) rather than growing forever, since new issues get
+    embedded every day going forward but old ones stop being realistic
+    duplicate candidates. Only the embedding is deleted, never the
+    underlying issues/judgments/corrections rows - those remain the
+    permanent audit trail regardless of this. Returns the number of rows
+    deleted, for logging.
+    """
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            DELETE FROM issue_embeddings
+            WHERE issue_id IN (
+                SELECT id FROM issues WHERE github_created_at < %s
+            )
+            """,
+            (cutoff,),
+        )
+        return cursor.rowcount
+
+
 @dataclass
 class JudgedIssue:
     """A judged, non-bot issue - the result of joining issues and judgments."""
@@ -184,6 +293,12 @@ class JudgedIssue:
     repo_owner: str
     repo_name: str
     judgment: IssueJudgment
+    possible_duplicate_number: int | None
+    """A ranked suggestion (see set_possible_duplicate), not a
+    classification - the most similar issue found, if any cleared the
+    loose sanity floor. None if no candidate was close enough, or none
+    existed yet."""
+    possible_duplicate_similarity: float | None
 
 
 def _row_to_judged_issue(row: tuple[Any, ...]) -> JudgedIssue:
@@ -204,6 +319,8 @@ def _row_to_judged_issue(row: tuple[Any, ...]) -> JudgedIssue:
             rationale=row[12],
             confidence=row[13],
         ),
+        possible_duplicate_number=row[14],
+        possible_duplicate_similarity=row[15],
     )
 
 
@@ -211,7 +328,8 @@ _JUDGED_ISSUE_SELECT = """
     SELECT i.id, j.id, i.github_number, i.title, i.body, i.html_url,
            i.repo_owner, i.repo_name,
            j.suggested_label, j.is_spam, j.summary, j.priority,
-           j.rationale, j.confidence
+           j.rationale, j.confidence,
+           j.possible_duplicate_number, j.possible_duplicate_similarity
     FROM issues i
     JOIN judgments j ON j.issue_id = i.id
 """
