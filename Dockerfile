@@ -18,8 +18,15 @@ RUN uv sync --frozen --no-install-project --no-dev
 
 COPY app.py ./
 COPY src/ ./src/
-COPY scripts/run_daily_job.py ./scripts/run_daily_job.py
-COPY scripts/__init__.py ./scripts/__init__.py
+# Whole directory, not individual files: listing scripts by name here
+# once caused a real production failure - scripts/backfill_issue_embeddings.py
+# (LOG.md entry 78) was never copied in, so its Cloud Run Job failed with
+# "No module named scripts.backfill_issue_embeddings" the first time it
+# ran. Copying the directory wholesale means a new production script
+# never needs a Dockerfile change to actually ship - the handful of
+# eval/local-only scripts that come along for the ride are harmless,
+# unused unless explicitly invoked.
+COPY scripts/ ./scripts/
 
 RUN useradd --create-home appuser && chown -R appuser:appuser /app
 USER appuser
