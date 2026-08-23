@@ -280,6 +280,41 @@ def prune_old_issue_embeddings(
         return cursor.rowcount
 
 
+def get_backfill_state(connection: psycopg.Connection[Any]) -> dt.datetime | None:
+    """The end of the last successfully completed backfill window, or
+    None if scripts/backfill_issue_embeddings.py has never completed a
+    run - the caller uses this to decide between a full BACKFILL_WINDOW
+    sweep (never run before) and an incremental one (continue from here)."""
+
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT last_window_end FROM backfill_state WHERE id = 1")
+        row = cursor.fetchone()
+        return row[0] if row is not None else None
+
+
+def set_backfill_state(
+    connection: psycopg.Connection[Any], window_end: dt.datetime
+) -> None:
+    """Record that the backfill has successfully covered up through
+    window_end - upsert on the single fixed row (id = 1). Only called
+    once, after every chunk in a run has completed - a crash partway
+    through leaves this unset, so the next run re-sweeps from the same
+    starting point rather than silently skipping whatever the crashed
+    run didn't finish. Safe either way: already-embedded issues are
+    skipped on re-processing regardless."""
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            INSERT INTO backfill_state (id, last_window_end)
+            VALUES (1, %s)
+            ON CONFLICT (id) DO UPDATE SET last_window_end = EXCLUDED.last_window_end
+            """,
+            (window_end,),
+        )
+        connection.commit()
+
+
 @dataclass
 class JudgedIssue:
     """A judged, non-bot issue - the result of joining issues and judgments."""

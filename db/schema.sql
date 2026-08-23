@@ -76,6 +76,20 @@ CREATE TABLE IF NOT EXISTS issue_embeddings (
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Single-row table tracking scripts/backfill_issue_embeddings.py's own
+-- progress, separate from anything the daily judgment pipeline touches
+-- (which also writes to issue_embeddings continuously - MAX(created_at)
+-- there would just reflect "whenever an issue was last judged," not how
+-- far the backfill itself has swept). Absent means "never run" (the
+-- full BACKFILL_WINDOW lookback applies); present means "only fetch
+-- since last_window_end" - what makes weekly re-runs incremental
+-- instead of re-sweeping the entire history every time.
+CREATE TABLE IF NOT EXISTS backfill_state (
+    id                  INTEGER PRIMARY KEY DEFAULT 1,
+    last_window_end     TIMESTAMPTZ NOT NULL,
+    CHECK (id = 1)
+);
+
 -- The operator's corrections, parsed from their comments on a digest
 -- issue - publish-then-review-and-correct. These feed back into future
 -- prompts as few-shot context and grow the golden evaluation set

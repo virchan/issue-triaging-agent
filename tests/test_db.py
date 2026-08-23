@@ -10,6 +10,7 @@ from src.db import (
     get_all_issue_embeddings,
     get_all_reviewed_judgments,
     get_authoritative_correction_digest,
+    get_backfill_state,
     get_correction_field_counts,
     get_issue_embedding,
     get_judged_issues_by_numbers,
@@ -23,6 +24,7 @@ from src.db import (
     save_issue_embedding,
     save_issue_snapshot,
     save_issue_snapshots,
+    set_backfill_state,
     set_correction_changed_fields,
     set_possible_duplicate,
     update_judgment,
@@ -116,6 +118,33 @@ def test_prune_old_issue_embeddings_returns_the_deleted_count(mocker: Any) -> No
     sql, params = cursor.execute.call_args.args
     assert "DELETE FROM issue_embeddings" in sql
     assert params == (cutoff,)
+
+
+def test_get_backfill_state_returns_the_last_window_end(mocker: Any) -> None:
+    connection, cursor = _mock_connection(mocker)
+    window_end = dt.datetime(2026, 8, 17, tzinfo=dt.UTC)
+    cursor.fetchone.return_value = (window_end,)
+
+    assert get_backfill_state(connection) == window_end
+
+
+def test_get_backfill_state_returns_none_when_never_run(mocker: Any) -> None:
+    connection, cursor = _mock_connection(mocker)
+    cursor.fetchone.return_value = None
+
+    assert get_backfill_state(connection) is None
+
+
+def test_set_backfill_state_upserts_the_single_row(mocker: Any) -> None:
+    connection, cursor = _mock_connection(mocker)
+    window_end = dt.datetime(2026, 8, 24, tzinfo=dt.UTC)
+
+    set_backfill_state(connection, window_end)
+
+    sql, params = cursor.execute.call_args.args
+    assert "ON CONFLICT (id) DO UPDATE" in sql
+    assert params == (window_end,)
+    connection.commit.assert_called_once()
 
 
 def test_save_issue_snapshot_returns_new_id_on_insert(

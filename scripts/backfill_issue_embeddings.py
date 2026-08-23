@@ -1,22 +1,38 @@
-"""One-time (safe to re-run) backfill of duplicate-candidate embeddings.
+"""Backfill of duplicate-candidate embeddings - full sweep on first run,
+incremental on every run after.
 
 LOG.md entry 75: the operator's real adjudicated duplicate examples came
 from scikit-learn's broader issue history, not just issues this agent
 has triaged - so the duplicate-candidate pool needs backfilling with a
 real slice of that history, not only issues judged going forward.
-Scoped to the last 2 years (the operator's own choice - a bounded,
-realistic window, not scikit-learn's entire multi-year history).
+Scoped to the last 2 years on first run (the operator's own choice - a
+bounded, realistic window, not scikit-learn's entire multi-year
+history). Runs weekly via a scheduled Cloud Run Job (LOG.md entry 78) -
+get_backfill_state/set_backfill_state track how far a prior run got, so
+a weekly re-run only fetches what's new since then (~7 days' worth, a
+few seconds of work) rather than re-sweeping all 2 years every time.
+OVERLAP_BUFFER re-checks a little of the prior run's own window too - a
+deliberate, cheap safety margin against edge cases near the boundary,
+not a sign the boundary itself is unreliable; already-embedded issues
+are skipped regardless; re-checking them costs a query, not a fresh
+embedding.
 
 Chunked into 7-day windows, not one big query: GitHub's Search API caps
 results at 1000 per query, and scikit-learn's real issue volume over
-even a month could plausibly approach that. A short delay between
-chunks keeps this comfortably under the Search API's own (stricter than
-the regular REST API's) rate limit.
+even a month could plausibly approach that (confirmed empirically - see
+LOG.md entry 78 - 1,159 real issues in the full 2-year window). A short
+delay between chunks keeps this comfortably under the Search API's own
+(stricter than the regular REST API's) rate limit. Chunking still
+matters even once runs are incremental: a missed scheduled run could
+leave a gap wider than one week.
 
-Idempotent and resumable: already-embedded issues are skipped (checked
-per issue, not per chunk), and each chunk commits independently, so a
-crash partway through loses at most one chunk's progress, not the whole
-run.
+Idempotent and resumable within a run: already-embedded issues are
+skipped (checked per issue, not per chunk), and each chunk commits
+independently, so a crash partway through loses at most one chunk's
+progress, not the whole run - though since set_backfill_state is only
+called once, at the very end, a crash partway through also means the
+next run starts from the same point again (safe, just some repeated
+work - never a gap or a skipped issue).
 
 Run with:
     uv run python -m scripts.backfill_issue_embeddings
@@ -35,9 +51,11 @@ from dotenv import load_dotenv
 from src.bot_filter import partition_bot_issues
 from src.db import (
     connect,
+    get_backfill_state,
     get_issue_embedding,
     save_issue_embedding,
     save_issue_snapshots,
+    set_backfill_state,
 )
 from src.duplicate_detection import issue_text
 from src.embeddings import EMBEDDING_MODEL, IssueEmbedder
@@ -49,6 +67,7 @@ LOGGER = logging.getLogger(__name__)
 OWNER = "scikit-learn"
 REPO = "scikit-learn"
 BACKFILL_WINDOW = dt.timedelta(days=365 * 2)
+OVERLAP_BUFFER = dt.timedelta(days=1)
 CHUNK_SIZE = dt.timedelta(days=7)
 DELAY_BETWEEN_CHUNKS_SECONDS = 2.0
 
@@ -71,7 +90,6 @@ def main() -> None:
     embedder = IssueEmbedder(api_key=os.environ["GEMINI_API_KEY"])
 
     window_end = dt.datetime.now(dt.UTC)
-    window_start = window_end - BACKFILL_WINDOW
 
     total_fetched = 0
     total_embedded = 0
@@ -79,6 +97,17 @@ def main() -> None:
     total_failed = 0
 
     with connect() as connection:
+        last_window_end = get_backfill_state(connection)
+        if last_window_end is None:
+            window_start = window_end - BACKFILL_WINDOW
+            LOGGER.info("No prior backfill state - running the full 2-year sweep.")
+        else:
+            window_start = last_window_end - OVERLAP_BUFFER
+            LOGGER.info(
+                f"Prior backfill reached {last_window_end.isoformat()} - "
+                f"running incrementally from {window_start.isoformat()}."
+            )
+
         for chunk_start, chunk_end in _chunk_windows(
             window_start, window_end, CHUNK_SIZE
         ):
@@ -114,6 +143,11 @@ def main() -> None:
                 f"fetched={len(issues)}, embedded so far={total_embedded}"
             )
             time.sleep(DELAY_BETWEEN_CHUNKS_SECONDS)
+
+        # Recorded only after every chunk above has completed - see the
+        # module docstring for why a crash partway through deliberately
+        # doesn't advance this.
+        set_backfill_state(connection, window_end)
 
     print(
         f"Done. Fetched {total_fetched} issues, embedded {total_embedded} new, "
