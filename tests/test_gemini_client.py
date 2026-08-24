@@ -6,6 +6,8 @@ import pytest
 
 from src.db import ReviewedJudgment
 from src.gemini_client import (
+    _JUDGE_INSTRUCTIONS,
+    _REJUDGE_INSTRUCTIONS,
     GeminiConfigurationError,
     GeminiJudge,
     GeminiResponseError,
@@ -95,6 +97,19 @@ def test_judge_sends_labels_and_issue_content_in_prompt(
     assert call.kwargs["model"] == "gemini-3.5-flash"
     assert config.response_mime_type == "application/json"
     assert config.response_schema is IssueJudgment
+
+
+def test_instructions_load_from_their_template_files() -> None:
+    """Regression test for the entry-91 refactor: _JUDGE_INSTRUCTIONS and
+    _REJUDGE_INSTRUCTIONS moved from inline string constants to
+    src/templates/*-instructions.md.jinja, loaded via render_template.
+    Confirms the files actually loaded (not empty, not the wrong file)
+    rather than trusting the refactor silently."""
+
+    assert "triage assistant for the scikit-learn" in _JUDGE_INSTRUCTIONS
+    assert "suggested_label must be exactly one label" in _JUDGE_INSTRUCTIONS
+    assert "revising a previous triage judgment" in _REJUDGE_INSTRUCTIONS
+    assert "Produce a revised judgment" in _REJUDGE_INSTRUCTIONS
 
 
 def test_judge_rejects_blank_title(client: Any, judge: GeminiJudge) -> None:
