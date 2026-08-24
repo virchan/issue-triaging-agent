@@ -568,6 +568,56 @@ def test_run_daily_cycle_excludes_a_wip_digest_closed_before_this_run(
     assert result.reviews[0].captured == 1
 
 
+def test_run_daily_cycle_skips_digest_for_same_day_wip_with_nothing_new(
+    mocker: Any, clients_and_connection: tuple[Any, Any, Any, Any, Any]
+) -> None:
+    """Real incident, 2026-08-24: a Cloud Scheduler double-fire produced
+    two "nothing new" digest issues 32 seconds apart, because a WIP
+    digest already published earlier the same day didn't stop a second
+    one from being built and published. A same-day WIP plus a window
+    that found nothing new must skip publishing entirely, not just
+    reuse the reminder wording."""
+
+    github_client, shadow_client, gemini_judge, issue_embedder, connection = (
+        clients_and_connection
+    )
+
+    same_day_wip = _unreviewed(
+        3, 20, window_end=dt.datetime.now(dt.UTC) - dt.timedelta(hours=1)
+    )
+    mocker.patch("src.daily_job.get_unreviewed_digests", return_value=[same_day_wip])
+    github_client.fetch_labels.return_value = ["Bug"]
+    mocker.patch("src.daily_job.get_recent_reviewed_judgments", return_value=[])
+    mocker.patch(
+        "src.daily_job.capture_corrections",
+        return_value=CaptureResult(issue_still_open=True, already_reviewed=False),
+    )
+    mocker.patch("src.daily_job.fetch_and_judge", return_value=_EMPTY)
+    backlog_mock = mocker.patch("src.daily_job.fetch_and_judge_backlog")
+    build_digest_mock = mocker.patch("src.daily_job.build_digest")
+    publish_digest_mock = mocker.patch("src.daily_job.publish_digest")
+
+    result = run_daily_cycle(
+        github_client=github_client,
+        shadow_client=shadow_client,
+        gemini_judge=gemini_judge,
+        issue_embedder=issue_embedder,
+        connection=connection,
+        source_owner="scikit-learn",
+        source_repo="scikit-learn",
+        shadow_owner="virchan",
+        shadow_repo="issue-triaging-agent-digests",
+        label="Needs Triage",
+    )
+
+    build_digest_mock.assert_not_called()
+    publish_digest_mock.assert_not_called()
+    backlog_mock.assert_not_called()
+    assert result.digest is None
+    assert result.published is None
+    assert result.pipeline is _EMPTY
+
+
 def test_run_daily_cycle_does_not_skip_backlog_when_no_wip_exists(
     mocker: Any, clients_and_connection: tuple[Any, Any, Any, Any, Any]
 ) -> None:

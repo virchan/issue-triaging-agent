@@ -53,8 +53,10 @@ class HealthResponse(BaseModel):
 
 class TriggerResponse(BaseModel):
     pipeline: PipelineResult
-    digest_id: int
-    issue_count: int
+    digest_id: int | None
+    """None when the same-day duplicate guard skipped publishing - see
+    src.daily_job.run_daily_cycle."""
+    issue_count: int | None
     published_issue_number: int | None
     published_issue_url: str | None
     reviews: list[CaptureResult]
@@ -138,8 +140,8 @@ def trigger(x_trigger_token: str | None = Header(default=None)) -> TriggerRespon
 
     return TriggerResponse(
         pipeline=result.pipeline,
-        digest_id=result.digest.digest_id,
-        issue_count=result.digest.issue_count,
+        digest_id=result.digest.digest_id if result.digest else None,
+        issue_count=result.digest.issue_count if result.digest else None,
         published_issue_number=result.published[0] if result.published else None,
         published_issue_url=result.published[1] if result.published else None,
         reviews=result.reviews,

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import logging
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -13,7 +14,7 @@ from src.db import (
     get_unreviewed_digests,
     prune_old_issue_embeddings,
 )
-from src.digest import DigestContent, build_digest, publish_digest
+from src.digest import OPERATOR_TIMEZONE, DigestContent, build_digest, publish_digest
 from src.embeddings import IssueEmbedder
 from src.gemini_client import GeminiJudge
 from src.github_client import GitHubClient
@@ -55,6 +56,8 @@ TESTING_LABEL = "testing"
 # production-ready.
 STILL_TESTING = True
 
+LOGGER = logging.getLogger(__name__)
+
 
 @dataclass
 class DailyCycleResult:
@@ -63,7 +66,9 @@ class DailyCycleResult:
     now-possibly-closed digests)."""
 
     pipeline: PipelineResult
-    digest: DigestContent
+    digest: DigestContent | None
+    """None only when the same-day-duplicate guard skipped publishing
+    entirely - see run_daily_cycle."""
     published: tuple[int, str] | None
     reviews: list[CaptureResult] = field(default_factory=list)
     backlog: PipelineResult | None = None
@@ -139,6 +144,11 @@ def run_daily_cycle(
     Run Job - it controls whether the published digest gets
     MANUALLY_TRIGGERED_LABEL or AGENT_TRIGGERED_LABEL alongside
     DIGEST_LABEL.
+
+    Returns with digest=None, published=None (no GitHub issue created,
+    no new digests row) when a same-day WIP digest already exists and
+    this run's window found nothing new - see the same-day duplicate
+    guard below.
     """
 
     unreviewed_digests = get_unreviewed_digests(connection)
@@ -216,6 +226,39 @@ def run_daily_cycle(
     # than growing forever - safe to run every cycle regardless of
     # whether anything was actually judged this time.
     prune_old_issue_embeddings(connection, window_end - EMBEDDING_RETENTION)
+
+    # Same-day duplicate guard: a WIP digest already published earlier
+    # today, plus this run finding nothing new, means a fresh digest
+    # would only repeat the exact same "nothing new since #N" reminder
+    # the still-open one already carries - real, not hypothetical (a
+    # Cloud Scheduler double-fire produced exactly this on 2026-08-24,
+    # two "nothing new" issues 32 seconds apart). Compares calendar dates
+    # in OPERATOR_TIMEZONE, matching build_digest's own display_date -
+    # a WIP digest from *yesterday* still gets today's normal reminder
+    # digest; only a same-day repeat is skipped.
+    if (
+        most_recent_wip is not None
+        and pipeline_result.fetched == 0
+        and most_recent_wip.window_end.astimezone(OPERATOR_TIMEZONE).date()
+        == window_end.astimezone(OPERATOR_TIMEZONE).date()
+    ):
+        LOGGER.info(
+            f"Skipping digest: {shadow_owner}/{shadow_repo}#"
+            f"{most_recent_wip.shadow_issue_number} already covers today "
+            "and this run found nothing new",
+            extra={
+                "event": "daily_cycle_skip",
+                "wip_digest_issue_number": most_recent_wip.shadow_issue_number,
+                "reason": "duplicate_same_day_no_new_issues",
+            },
+        )
+        return DailyCycleResult(
+            pipeline=pipeline_result,
+            digest=None,
+            published=None,
+            reviews=reviews,
+            backlog=backlog_result,
+        )
 
     digest = build_digest(
         connection,

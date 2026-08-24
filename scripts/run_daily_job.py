@@ -67,9 +67,12 @@ def main() -> None:
     print(f"Pipeline: {result.pipeline}")
     if result.backlog is not None:
         print(f"Backlog catch-up: {result.backlog}")
-    print(
-        f"Digest: id={result.digest.digest_id}, issue_count={result.digest.issue_count}"
-    )
+    if result.digest is None:
+        print("Digest: skipped (same-day WIP digest already covers today)")
+    else:
+        print(
+            f"Digest: id={result.digest.digest_id}, issue_count={result.digest.issue_count}"
+        )
     print(f"Published: {result.published}")
     print(f"Reviews checked: {len(result.reviews)}")
     for review in result.reviews:
