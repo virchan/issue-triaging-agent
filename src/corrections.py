@@ -32,14 +32,24 @@ LOGGER = logging.getLogger(__name__)
 # not open-ended fuzzy matching: a pattern loose enough to guess at any
 # "word/number" is exactly what caused the entry 63 incident (a stray
 # "#13" elsewhere in a comment got misattributed). Anything not on this
-# list, or not in the full owner/repo/number form below, isn't matched -
-# it falls through to extract_corrections_by_issue's existing
+# list, or not in one of the recognized forms below, isn't matched - it
+# falls through to extract_corrections_by_issue's existing
 # unattributed-comment reporting rather than being guessed at. Add more
 # aliases here as they come up in real use.
 _KNOWN_REPO_ALIASES = ("scikit-learn", "sklearn")
 
+# The one real GitHub org/repo this agent tracks judgments for - the only
+# owner/repo#number reference _SOURCE_REPO_HASH_PATTERN below recognizes.
+# A reference naming any *other* repo (e.g. a real duplicate that lives in
+# uxlfoundation/scikit-learn-intelex, LOG.md entry 85) has no judgment to
+# attribute a correction to here, so it's correctly left unmatched -
+# same allowlist discipline as _KNOWN_REPO_ALIASES, not a gap to widen.
+_SOURCE_REPO_HASH_PATTERN = re.compile(
+    r"scikit-learn/scikit-learn#(\d+)", re.IGNORECASE
+)
+
 # Tried in order, most specific first - a line is matched by the first
-# pattern that hits, not all of them (both patterns can, coincidentally,
+# pattern that hits, not all of them (multiple patterns can, coincidentally,
 # both match somewhere in a full "owner/repo/number" reference, since
 # "repo/number" is a literal substring of it - trying the specific form
 # first keeps which pattern actually matched unambiguous rather than
@@ -48,6 +58,7 @@ _REFERENCE_PATTERNS = [
     re.compile(
         r"[\w.-]+/[\w.-]+/(\d+)"
     ),  # owner/repo/number, e.g. scikit-learn/scikit-learn/34649
+    _SOURCE_REPO_HASH_PATTERN,  # GitHub's real autolink form, e.g. scikit-learn/scikit-learn#34649
     re.compile(
         r"\b(?:"
         + "|".join(re.escape(alias) for alias in _KNOWN_REPO_ALIASES)
@@ -62,7 +73,9 @@ _REFERENCE_PATTERNS = [
 # digest.py's wip_digest_issue_number reminder line and corrections.py's
 # SupersededCorrection message). Recognizing it here too would silently
 # reintroduce the exact ambiguity entry 63 fixed, just from the other
-# direction.
+# direction. _SOURCE_REPO_HASH_PATTERN above is unambiguous because it
+# requires the literal "scikit-learn/scikit-learn" prefix before the "#" -
+# a standalone "#NNN" never matches it.
 
 # How many corrections get an actual re-judge (a fresh Gemini call) per
 # capture_corrections call. Corrections beyond this are still recorded
@@ -92,13 +105,16 @@ def extract_corrections_by_issue(comment_body: str) -> dict[int, str]:
     A digest comment often corrects several issues at once - one bullet
     per issue - so this returns a dict, not a single number: each line
     naming a specific issue (e.g. "`scikit-learn/scikit-learn/34649` is
-    not about linear model, it's about SVC", or the shorter
+    not about linear model, it's about SVC", GitHub's own real autolink
+    form "scikit-learn/scikit-learn#34649", or the shorter
     "scikit-learn/34649"/"sklearn/34649") becomes that issue's correction
     text. Lines naming the same issue twice within one comment are
     combined into a single correction. A line with no recognizable
     reference isn't attributed to any judgment (judgment_id is required)
     and is dropped rather than silently merged into an unrelated issue's
-    correction.
+    correction - this includes a line naming an issue in a *different*
+    repo (e.g. "the real duplicate is uxlfoundation/scikit-learn-intelex
+    #3377"), since there's no judgment here to attribute it to.
     """
 
     corrections: dict[int, list[str]] = {}
@@ -177,7 +193,7 @@ def format_acknowledgment(result: CaptureResult) -> str:
 
     applied = [
         {
-            "reference": f"scikit-learn/scikit-learn/{item.github_number}",
+            "reference": f"scikit-learn/scikit-learn#{item.github_number}",
             "correction_text": item.correction_text,
             "new_label": item.new_label,
         }

@@ -93,17 +93,21 @@ def _group_issues_by_priority(issues: list[JudgedIssue]) -> list[dict[str, Any]]
     Shared by the "new" and "backlog" sections - see digest.md.jinja's
     render_groups macro, which both call into.
 
-    Each issue's reference is a real, clickable link - `[<code>repo/
-    number</code>](redirect.github.com/...)` in the template - rather
-    than the inert backtick-wrapped `owner/repo/number` text used before
-    the redirect.github.com change. A real link (or GitHub's own
-    owner/repo#NNN autolink syntax) whose target is a real github.com
-    issue/PR URL creates a visible GitHub cross-reference on that issue;
-    redirect.github.com does not (see _redirect_url). html_url itself is
-    not passed to the template - only redirect_url is rendered, real
-    confirmed to not create a cross-reference (LOG.md entry 71); keeping
-    a second, redundant "Link:" field showing the same URL twice per
-    issue wasn't worth it once that was independently confirmed live.
+    Each issue's reference is a real, clickable link - `[<code>owner/repo
+    #number</code>](redirect.github.com/...)` in the template - GitHub's
+    own real autolink syntax as the display text (LOG.md entry 87), not
+    the inert backtick-wrapped `owner/repo/number` text used before the
+    redirect.github.com change. Writing `owner/repo#NNN` as plain text
+    targeting a real github.com issue/PR would normally create its own
+    GitHub cross-reference independent of any surrounding link - but
+    wrapped in `<code>` with a redirect.github.com href, empirically
+    confirmed not to (LOG.md entry 87 traced a real correction comment
+    using this exact form to a target issue's timeline and found no
+    cross-reference from it). html_url itself is not passed to the
+    template - only redirect_url is rendered, real confirmed to not
+    create a cross-reference (LOG.md entry 71); keeping a second,
+    redundant "Link:" field showing the same URL twice per issue wasn't
+    worth it once that was independently confirmed live.
 
     possible_duplicate (None unless set) is a ranked suggestion, not a
     classification (LOG.md entries 73-76) - the most similar other issue
@@ -126,7 +130,7 @@ def _group_issues_by_priority(issues: list[JudgedIssue]) -> list[dict[str, Any]]
 
         groups[-1]["issues"].append(
             {
-                "reference_text": f"{item.repo_name}/{item.github_number}",
+                "reference_text": f"{item.repo_owner}/{item.repo_name}#{item.github_number}",
                 "redirect_url": _redirect_url(item.html_url),
                 "title": item.title,
                 # Plain text, not a boolean the template branches on: an
@@ -140,7 +144,7 @@ def _group_issues_by_priority(issues: list[JudgedIssue]) -> list[dict[str, Any]]
                 "has_code_block": _has_code_block(item.body),
                 "possible_duplicate": (
                     {
-                        "reference_text": f"{item.repo_name}/{item.possible_duplicate_number}",
+                        "reference_text": f"{item.repo_owner}/{item.repo_name}#{item.possible_duplicate_number}",
                         "redirect_url": _redirect_issue_url(
                             item.repo_owner,
                             item.repo_name,

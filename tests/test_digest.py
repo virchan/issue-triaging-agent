@@ -104,12 +104,16 @@ def test_format_digest_body_flags_a_code_snippet_deterministically() -> None:
         dt.date(2026, 8, 4), [with_code, without_code, no_body_at_all]
     )
 
-    assert "### [<code>scikit-learn/1</code>" in body
-    section_1 = body.split("### [<code>scikit-learn/1</code>")[1].split("###")[0]
+    assert "### [<code>scikit-learn/scikit-learn#1</code>" in body
+    section_1 = body.split("### [<code>scikit-learn/scikit-learn#1</code>")[1].split(
+        "###"
+    )[0]
     assert "**Contains a code snippet:** Yes" in section_1
-    section_2 = body.split("### [<code>scikit-learn/2</code>")[1].split("###")[0]
+    section_2 = body.split("### [<code>scikit-learn/scikit-learn#2</code>")[1].split(
+        "###"
+    )[0]
     assert "**Contains a code snippet:** No" in section_2
-    section_3 = body.split("### [<code>scikit-learn/3</code>")[1]
+    section_3 = body.split("### [<code>scikit-learn/scikit-learn#3</code>")[1]
     assert "**Contains a code snippet:** No" in section_3
 
 
@@ -121,7 +125,7 @@ def test_format_digest_body_renders_a_possible_duplicate_when_set() -> None:
     body = format_digest_body(dt.date(2026, 8, 4), [issue])
 
     assert "**Possibly related to:**" in body
-    assert "<code>scikit-learn/999</code>" in body
+    assert "<code>scikit-learn/scikit-learn#999</code>" in body
     assert "https://redirect.github.com/scikit-learn/scikit-learn/issues/999" in body
     assert "(similarity: 0.87)" in body
 
@@ -157,24 +161,27 @@ def test_format_digest_body_never_creates_a_clickable_cross_reference() -> None:
 
     A markdown link whose target is a real github.com issue/PR URL
     creates a visible GitHub cross-reference on that issue - confirmed
-    empirically. The heading reference is a real, clickable link, but its
-    target must be the redirect.github.com form (confirmed empirically
-    NOT to create a cross-reference - see LOG.md entries 67, 71), never a
-    raw github.com URL. Nor may a bare "#NNN" or "owner/repo#NNN" appear
-    anywhere. The separate "Link:" field (which used to carry the real
-    URL as a backup) was removed once this was independently confirmed
-    live twice - see LOG.md entry 72.
+    empirically. The heading reference is a real, clickable link using
+    GitHub's own owner/repo#number autolink text (LOG.md entry 87), but
+    its target must be the redirect.github.com form (confirmed
+    empirically NOT to create a cross-reference even with this exact
+    text - see LOG.md entries 67, 71, 87), never a raw github.com URL.
+    The reference text must appear exactly once - inside that link, not
+    also as bare, unprotected text elsewhere that GitHub's own autolinker
+    could pick up independently of the link. The separate "Link:" field
+    (which used to carry the real URL as a backup) was removed once this
+    was independently confirmed live twice - see LOG.md entry 72.
     """
 
     body = format_digest_body(dt.date(2026, 8, 4), [_judged_issue(34649)])
 
     assert "](https://github.com/scikit-learn" not in body
     assert (
-        "[<code>scikit-learn/34649</code>]"
+        "[<code>scikit-learn/scikit-learn#34649</code>]"
         "(https://redirect.github.com/scikit-learn/scikit-learn/issues/34649)"
     ) in body
     assert "https://github.com/scikit-learn/scikit-learn/issues/34649" not in body
-    assert "scikit-learn#34649" not in body
+    assert body.count("scikit-learn/scikit-learn#34649") == 1
 
 
 def test_format_digest_body_renders_backlog_only_section() -> None:
@@ -191,7 +198,7 @@ def test_format_digest_body_renders_backlog_only_section() -> None:
 
     assert 'No newly created issue(s) labelled "Needs Triage" were found' in body
     assert "1 older open issue(s) that still need triaging" in body
-    assert "<code>scikit-learn/1</code>" in body
+    assert "<code>scikit-learn/scikit-learn#1</code>" in body
 
 
 def test_format_digest_body_renders_combined_new_and_backlog_sections() -> None:
@@ -202,8 +209,8 @@ def test_format_digest_body_renders_combined_new_and_backlog_sections() -> None:
         backlog_issues=[_judged_issue(2)],
     )
 
-    assert "<code>scikit-learn/1</code>" in body
-    assert "<code>scikit-learn/2</code>" in body
+    assert "<code>scikit-learn/scikit-learn#1</code>" in body
+    assert "<code>scikit-learn/scikit-learn#2</code>" in body
     assert "1 older open issue(s) that still need triaging too" in body
 
 
@@ -321,7 +328,7 @@ def test_build_digest_includes_backlog_issues(mocker: Any, connection: Any) -> N
     )
 
     assert content.issue_count == 1
-    assert "<code>scikit-learn/99</code>" in content.body
+    assert "<code>scikit-learn/scikit-learn#99</code>" in content.body
     get_by_numbers.assert_called_once_with(
         connection, "scikit-learn", "scikit-learn", [99]
     )

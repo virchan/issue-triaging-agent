@@ -132,6 +132,40 @@ def test_extract_corrections_by_issue_accepts_known_short_aliases(body: str) -> 
     assert extract_corrections_by_issue(body) == {34649: body}
 
 
+def test_extract_corrections_by_issue_accepts_githubs_real_autolink_form() -> None:
+    """LOG.md entry 87: the operator's own daily-log.md flagged that
+    "owner/repo/number" isn't GitHub's real, clickable reference syntax -
+    "owner/repo#number" is (per GitHub's autolinked-references docs).
+    Recognized as an addition, not a replacement for the existing forms."""
+
+    body = "`scikit-learn/scikit-learn#34649` is not about linear model, it's about SVC"
+    assert extract_corrections_by_issue(body) == {34649: body}
+
+
+def test_extract_corrections_by_issue_ignores_a_different_repos_reference() -> None:
+    """A real duplicate can live in a repo this agent has no judgments
+    for (e.g. uxlfoundation/scikit-learn-intelex, LOG.md entry 85) - such
+    a reference must not be misattributed to a scikit-learn/scikit-learn
+    judgment sharing the same issue number by coincidence."""
+
+    body = "the real duplicate is uxlfoundation/scikit-learn-intelex#3377"
+    assert extract_corrections_by_issue(body) == {}
+
+
+def test_extract_corrections_by_issue_real_world_mixed_repo_correction() -> None:
+    """The exact real correction from LOG.md entry 85/daily-log.md
+    2026-08-24: one line names both the scikit-learn issue being
+    corrected and, separately, where the real duplicate actually lives -
+    only the former is a valid attribution target."""
+
+    body = (
+        "1. `scikit-learn/34807` is not related to `scikit-learn/34117`, "
+        "but rather `uxlfoundation/scikit-learn-intelex#3377`"
+    )
+
+    assert extract_corrections_by_issue(body) == {34807: body}
+
+
 def test_format_acknowledgment_with_corrections() -> None:
     text = format_acknowledgment(
         CaptureResult(issue_still_open=False, already_reviewed=False, captured=2)
@@ -163,17 +197,17 @@ def test_format_acknowledgment_lists_applied_corrections() -> None:
     )
     assert "<details>" in text
     assert "Corrections recorded (2)" in text
-    assert "`scikit-learn/scikit-learn/34436`" in text
+    assert "`scikit-learn/scikit-learn#34436`" in text
     assert "should include Numerical Stability" in text
     assert "→ label updated to **Numerical Stability**" in text
-    assert "`scikit-learn/scikit-learn/34618`" in text
+    assert "`scikit-learn/scikit-learn#34618`" in text
     assert "line one\nline two" in text
     assert "</details>" in text
     # Entries must be separated by a blank line (a divider, here), not run
     # together in one paragraph - GitHub's renderer needs it to tell them
     # apart as distinct blocks inside the collapsed section.
     assert (
-        "**Numerical Stability**\n\n---\n\n**`scikit-learn/scikit-learn/34618`**"
+        "**Numerical Stability**\n\n---\n\n**`scikit-learn/scikit-learn#34618`**"
         in text
     )
 
@@ -207,8 +241,8 @@ def test_format_acknowledgment_notes_unmatched_references() -> None:
         )
     )
     assert "Note: 2 references" in text
-    assert "`scikit-learn/scikit-learn/99999`" in text
-    assert "`scikit-learn/scikit-learn/12345`" in text
+    assert "`scikit-learn/scikit-learn#99999`" in text
+    assert "`scikit-learn/scikit-learn#12345`" in text
     assert "were not recorded" in text
 
 
@@ -234,7 +268,7 @@ def test_format_acknowledgment_notes_superseded_correction() -> None:
             superseded=[SupersededCorrection(34649, 16)],
         )
     )
-    assert "`scikit-learn/scikit-learn/34649`" in text
+    assert "`scikit-learn/scikit-learn#34649`" in text
     assert "#16" in text
 
 
@@ -346,7 +380,7 @@ def test_capture_corrections_reports_a_reference_that_matches_no_judgment(
     assert result.unattributed_comment_ids == []
     ack = shadow_client.create_issue_comment.call_args.args[3]
     assert "1 reference" in ack
-    assert "`scikit-learn/scikit-learn/99999`" in ack
+    assert "`scikit-learn/scikit-learn#99999`" in ack
     assert "didn't match any issue this agent has judged" in ack
     mark_reviewed.assert_called_once_with(connection, 1)
 
