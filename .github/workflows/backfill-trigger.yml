@@ -36,6 +36,17 @@ jobs:
           gcloud run jobs execute "${{ secrets.GCP_BACKFILL_JOB }}" \
             --region="${{ secrets.GCP_REGION }}" --wait
 
+      # --wait above can block for well over an hour (the Cloud Run Job
+      # itself has a 1-hour task timeout plus a retry - see LOG.md entry
+      # 82/83) - long enough to outlast the WIF-issued access token's
+      # default 1-hour lifetime. Re-authenticating here means the steps
+      # below never run on a token that may have gone stale while waiting.
+      - uses: google-github-actions/auth@v2
+        if: always()
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
       - name: Extract the real result
         id: extract
         if: always()
