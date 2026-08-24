@@ -26,6 +26,14 @@ delay between chunks keeps this comfortably under the Search API's own
 matters even once runs are incremental: a missed scheduled run could
 leave a gap wider than one week.
 
+DELAY_BETWEEN_EMBEDS_SECONDS paces individual embedding calls too, not
+just chunks - the first real run (LOG.md entry 80) lost 751 of 1,159
+issues to 429 Too Many Requests, because a chunk with 15-20 issues fired
+that many embed() calls back-to-back with nothing spacing them out.
+IssueEmbedder.embed() itself now also retries on a 429 specifically, so
+this is a second, complementary layer - reduces how often a 429 happens
+at all, rather than only recovering after it does.
+
 Idempotent and resumable within a run: already-embedded issues are
 skipped (checked per issue, not per chunk), and each chunk commits
 independently, so a crash partway through loses at most one chunk's
@@ -61,6 +69,7 @@ from src.duplicate_detection import issue_text
 from src.embeddings import EMBEDDING_MODEL, IssueEmbedder
 from src.gemini_client import GeminiUnavailableError
 from src.github_client import GitHubClient
+from src.logging_config import configure_logging
 
 LOGGER = logging.getLogger(__name__)
 
@@ -70,6 +79,7 @@ BACKFILL_WINDOW = dt.timedelta(days=365 * 2)
 OVERLAP_BUFFER = dt.timedelta(days=1)
 CHUNK_SIZE = dt.timedelta(days=7)
 DELAY_BETWEEN_CHUNKS_SECONDS = 2.0
+DELAY_BETWEEN_EMBEDS_SECONDS = 1.0
 
 
 def _chunk_windows(
@@ -84,7 +94,7 @@ def _chunk_windows(
 
 def main() -> None:
     load_dotenv()
-    logging.basicConfig(level=logging.INFO)
+    configure_logging()
 
     github_client = GitHubClient(token=os.environ.get("GITHUB_TOKEN"))
     embedder = IssueEmbedder(api_key=os.environ["GEMINI_API_KEY"])
@@ -136,6 +146,7 @@ def main() -> None:
                         f"Embedding failed for issue #{issue.number}: {error}"
                     )
                     total_failed += 1
+                time.sleep(DELAY_BETWEEN_EMBEDS_SECONDS)
 
             connection.commit()
             LOGGER.info(
@@ -149,6 +160,19 @@ def main() -> None:
         # doesn't advance this.
         set_backfill_state(connection, window_end)
 
+    # A structured event, not just the print() below - LOG.md entry 80's
+    # backfill-trigger workflow parses these as real JSON fields (Cloud
+    # Logging jsonPayload), not by regexing free text out of stdout.
+    LOGGER.info(
+        "Backfill run completed",
+        extra={
+            "event": "backfill_run",
+            "fetched": total_fetched,
+            "embedded": total_embedded,
+            "skipped": total_skipped,
+            "failed": total_failed,
+        },
+    )
     print(
         f"Done. Fetched {total_fetched} issues, embedded {total_embedded} new, "
         f"skipped {total_skipped} already-embedded, {total_failed} failed."

@@ -1,0 +1,15 @@
+{% if success %}
+✅ Backfill run succeeded.
+{% else %}
+❌ Backfill run failed.
+{% endif %}
+
+- **Fetched:** {{ fetched }}
+- **Embedded (new):** {{ embedded }}
+- **Skipped (already embedded):** {{ skipped }}
+- **Failed:** {{ failed }}
+- **Workflow run:** {{ run_url }}
+{% if failed %}
+
+⚠️ {{ failed }} issue(s) failed to embed - check Cloud Logging for `issue-triaging-agent-backfill` for details.
+{% endif %}

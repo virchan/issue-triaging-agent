@@ -1,0 +1,11 @@
+{% if success %}
+✅ Deploy succeeded.
+{% else %}
+❌ Deploy failed.
+{% endif %}
+
+- **Commit:** `{{ commit_sha }}`
+- **Image:** `{{ image_tag }}`
+- **Cloud Run revision:** {{ revision or "(not reached)" }}
+- **Health check:** {{ "200 OK" if health_check_ok else "failed or not reached" }}
+- **Workflow run:** {{ run_url }}

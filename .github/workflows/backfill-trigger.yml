@@ -1,0 +1,84 @@
+name: Trigger Backfill
+
+# Manual only - a button press, mirroring Deploy's pattern. Reuses the
+# same Workload Identity Federation setup and issue-triaging-agent-deployer
+# identity (roles/run.admin already covers executing a Cloud Run Job,
+# not just deploying one) - no new credential or IAM grant.
+#
+# Waits for the Cloud Run Job execution to actually finish (deliberately
+# not fire-and-forget - see LOG.md entry 80): a trigger that only
+# confirms "I asked GCP to run this" can't answer whether it actually
+# succeeded, which is the entire point of this workflow existing.
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  id-token: write
+  issues: write
+
+jobs:
+  trigger:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Run backfill job and wait for completion
+        id: run_backfill
+        run: |
+          gcloud run jobs execute "${{ secrets.GCP_BACKFILL_JOB }}" \
+            --region="${{ secrets.GCP_REGION }}" --wait
+
+      - name: Extract the real result
+        id: extract
+        if: always()
+        run: |
+          EXECUTION=$(gcloud run jobs executions list \
+            --job="${{ secrets.GCP_BACKFILL_JOB }}" --region="${{ secrets.GCP_REGION }}" \
+            --limit=1 --sort-by="~createTime" --format='value(name)')
+
+          SUCCEEDED=$(gcloud run jobs executions describe "$EXECUTION" \
+            --region="${{ secrets.GCP_REGION }}" --format='value(status.succeededCount)')
+
+          FILTER="resource.type=\"cloud_run_job\" AND resource.labels.job_name=\"${{ secrets.GCP_BACKFILL_JOB }}\" AND labels.\"run.googleapis.com/execution_name\"=\"$EXECUTION\" AND jsonPayload.event=\"backfill_run\""
+          FETCHED=$(gcloud logging read "$FILTER" --limit=1 --format='value(jsonPayload.fetched)')
+          EMBEDDED=$(gcloud logging read "$FILTER" --limit=1 --format='value(jsonPayload.embedded)')
+          SKIPPED=$(gcloud logging read "$FILTER" --limit=1 --format='value(jsonPayload.skipped)')
+          FAILED=$(gcloud logging read "$FILTER" --limit=1 --format='value(jsonPayload.failed)')
+
+          echo "success=$([ "$SUCCEEDED" = "1" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          echo "fetched=${FETCHED:-0}" >> "$GITHUB_OUTPUT"
+          echo "embedded=${EMBEDDED:-0}" >> "$GITHUB_OUTPUT"
+          echo "skipped=${SKIPPED:-0}" >> "$GITHUB_OUTPUT"
+          echo "failed=${FAILED:-0}" >> "$GITHUB_OUTPUT"
+
+      - uses: astral-sh/setup-uv@v5
+        if: always()
+        with:
+          enable-cache: true
+
+      - run: uv python install
+        if: always()
+
+      - run: uv sync
+        if: always()
+
+      - name: Report status
+        if: always()
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          uv run python -m scripts.report_backfill_status \
+            --success "${{ steps.extract.outputs.success }}" \
+            --fetched "${{ steps.extract.outputs.fetched }}" \
+            --embedded "${{ steps.extract.outputs.embedded }}" \
+            --skipped "${{ steps.extract.outputs.skipped }}" \
+            --failed "${{ steps.extract.outputs.failed }}" \
+            --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"

@@ -5,9 +5,23 @@ from typing import Any
 from unittest.mock import Mock
 
 import pytest
+from google.genai import errors
 
-from src.embeddings import EMBEDDING_MODEL, IssueEmbedder, cosine_similarity
+from src.embeddings import (
+    EMBEDDING_MODEL,
+    MAX_RATE_LIMIT_RETRIES,
+    IssueEmbedder,
+    cosine_similarity,
+)
 from src.gemini_client import GeminiConfigurationError, GeminiUnavailableError
+
+
+def _rate_limit_error() -> errors.APIError:
+    return errors.APIError(429, {"error": {"message": "rate limited"}})
+
+
+def _server_error() -> errors.APIError:
+    return errors.APIError(500, {"error": {"message": "boom"}})
 
 
 @pytest.fixture
@@ -65,6 +79,56 @@ def test_embed_translates_provider_failure(
 
     with pytest.raises(GeminiUnavailableError):
         embedder.embed("some issue text")
+
+
+def test_embed_retries_on_rate_limit_then_succeeds(
+    mocker: Any, client: Any, embedder: IssueEmbedder
+) -> None:
+    """LOG.md entry 80: the first real backfill run lost 751 of 1,159
+    issues to 429s with no retry at all. A transient rate limit that
+    clears within a couple of tries must not be treated as a permanent
+    failure."""
+
+    sleep = mocker.patch("src.embeddings.time.sleep")
+    client.models.embed_content.side_effect = [
+        _rate_limit_error(),
+        _rate_limit_error(),
+        mocker_embedding_response([0.1, 0.2]),
+    ]
+
+    vector = embedder.embed("some issue text")
+
+    assert vector == [0.1, 0.2]
+    assert client.models.embed_content.call_count == 3
+    assert sleep.call_count == 2
+    # Exponential: second wait longer than the first.
+    assert sleep.call_args_list[1].args[0] > sleep.call_args_list[0].args[0]
+
+
+def test_embed_gives_up_after_exhausting_rate_limit_retries(
+    mocker: Any, client: Any, embedder: IssueEmbedder
+) -> None:
+    mocker.patch("src.embeddings.time.sleep")
+    client.models.embed_content.side_effect = _rate_limit_error()
+
+    with pytest.raises(GeminiUnavailableError):
+        embedder.embed("some issue text")
+
+    # The initial attempt, plus every retry - never more, never fewer.
+    assert client.models.embed_content.call_count == MAX_RATE_LIMIT_RETRIES + 1
+
+
+def test_embed_does_not_retry_a_non_rate_limit_api_error(
+    mocker: Any, client: Any, embedder: IssueEmbedder
+) -> None:
+    sleep = mocker.patch("src.embeddings.time.sleep")
+    client.models.embed_content.side_effect = _server_error()
+
+    with pytest.raises(GeminiUnavailableError):
+        embedder.embed("some issue text")
+
+    client.models.embed_content.assert_called_once()
+    sleep.assert_not_called()
 
 
 def test_cosine_similarity_identical_vectors_is_one() -> None:

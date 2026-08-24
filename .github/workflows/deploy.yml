@@ -9,9 +9,13 @@ on:
 # id-token: write is required for Workload Identity Federation - GitHub
 # mints a short-lived OIDC token this workflow exchanges for GCP access.
 # No GCP credential is ever stored in this repo (see LOG.md for why).
+# issues: write lets the final step post this run's real outcome as an
+# issue in this repo, via GitHub's own automatic, repo-scoped token - no
+# new secret (LOG.md entry 80).
 permissions:
   contents: read
   id-token: write
+  issues: write
 
 jobs:
   test:
@@ -65,13 +69,47 @@ jobs:
             --image="${{ secrets.GCP_IMAGE }}:latest"
 
       - name: Redeploy Cloud Run service
+        id: deploy_service
         run: |
           gcloud run deploy "${{ secrets.GCP_CLOUD_RUN_SERVICE }}" \
             --region="${{ secrets.GCP_REGION }}" \
             --image="${{ secrets.GCP_IMAGE }}:latest"
+          REVISION=$(gcloud run services describe "${{ secrets.GCP_CLOUD_RUN_SERVICE }}" \
+            --region="${{ secrets.GCP_REGION }}" --format='value(status.latestReadyRevisionName)')
+          echo "revision=$REVISION" >> "$GITHUB_OUTPUT"
 
       - name: Verify health
+        id: health_check
         run: |
           URL=$(gcloud run services describe "${{ secrets.GCP_CLOUD_RUN_SERVICE }}" \
             --region="${{ secrets.GCP_REGION }}" --format='value(status.url)')
-          curl -sf "$URL/health"
+          if curl -sf "$URL/health"; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+
+      - uses: astral-sh/setup-uv@v5
+        if: always()
+        with:
+          enable-cache: true
+
+      - run: uv python install
+        if: always()
+
+      - run: uv sync
+        if: always()
+
+      - name: Report status
+        if: always()
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          uv run python -m scripts.report_deploy_status \
+            --success "${{ job.status == 'success' }}" \
+            --commit-sha "${GITHUB_SHA::7}" \
+            --image-tag "${{ secrets.GCP_IMAGE }}:latest" \
+            --revision "${{ steps.deploy_service.outputs.revision }}" \
+            --health-check-ok "${{ steps.health_check.outputs.ok }}" \
+            --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
