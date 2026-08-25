@@ -156,14 +156,39 @@ def test_extract_corrections_by_issue_real_world_mixed_repo_correction() -> None
     """The exact real correction from LOG.md entry 85/daily-log.md
     2026-08-24: one line names both the scikit-learn issue being
     corrected and, separately, where the real duplicate actually lives -
-    only the former is a valid attribution target."""
+    only the former is a valid attribution target.
+
+    This is the actual comment text, markdown link and all - an earlier
+    version of this test simplified the cross-repo mention to plain
+    backtick-wrapped text, which happened to not exercise the real
+    markdown-link-in-a-URL bug (LOG.md entry 92) at all. Correction
+    capture on the real comment misattributed this whole line to a
+    phantom "issue #3377" instead of #34807 - confirmed against the real
+    production log - because the link's own redirect.github.com target
+    matched the (unrelated) owner/repo/number pattern."""
 
     body = (
         "1. `scikit-learn/34807` is not related to `scikit-learn/34117`, "
-        "but rather `uxlfoundation/scikit-learn-intelex#3377`"
+        "but rather [<code>uxlfoundation/scikit-learn-intelex#3377</code>]"
+        "(https://redirect.github.com/uxlfoundation/scikit-learn-intelex/issues/3377)"
     )
 
     assert extract_corrections_by_issue(body) == {34807: body}
+
+
+def test_extract_corrections_by_issue_ignores_a_markdown_links_url() -> None:
+    """LOG.md entry 92: a markdown link's URL must never be scanned as a
+    reference, even when the line has no other candidate text at all -
+    the redirect.github.com target here is shaped exactly like
+    owner/repo/number and would otherwise misattribute to a phantom
+    issue number pulled out of the URL path."""
+
+    body = (
+        "[<code>uxlfoundation/scikit-learn-intelex#3377</code>]"
+        "(https://redirect.github.com/uxlfoundation/scikit-learn-intelex/issues/3377)"
+    )
+
+    assert extract_corrections_by_issue(body) == {}
 
 
 def test_format_acknowledgment_with_corrections() -> None:

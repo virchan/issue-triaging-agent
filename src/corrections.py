@@ -85,11 +85,32 @@ _REFERENCE_PATTERNS = [
 REJUDGE_CAP = 5
 
 
+_MARKDOWN_LINK_PATTERN = re.compile(r"\[([^\]]*)\]\(https?://[^)]*\)")
+
+
+def _strip_markdown_link_urls(line: str) -> str:
+    """Unwrap `[text](url)` down to just `text` before reference-matching.
+
+    LOG.md entry 92: a real correction embedded a markdown link whose
+    target was `https://redirect.github.com/uxlfoundation/scikit-learn-intelex/issues/3377`
+    - a URL shaped exactly like `owner/repo/issues/number`, which the
+    (already loose) owner/repo/number pattern matched, misattributing
+    the whole line to a phantom "issue #3377". A URL is never something
+    a human typed as a reference - it's incidental to a link's
+    structure - so no reference pattern should ever see it. Only used
+    for matching; the correction text actually stored is the original,
+    unstripped line.
+    """
+
+    return _MARKDOWN_LINK_PATTERN.sub(r"\1", line)
+
+
 def _match_issue_reference(line: str) -> int | None:
     """Try each pattern in _REFERENCE_PATTERNS, in order, returning the
     first match's github_number - None if the line matches none of them.
     """
 
+    line = _strip_markdown_link_urls(line)
     for pattern in _REFERENCE_PATTERNS:
         match = pattern.search(line)
         if match is not None:

@@ -14,6 +14,7 @@ from src.db import (
     get_correction_field_counts,
     get_issue_embedding,
     get_judged_issues_by_numbers,
+    get_judged_issues_in_window,
     get_judgment_id_for_issue_number,
     get_recent_reviewed_judgments,
     get_rejudge_context,
@@ -105,6 +106,38 @@ def test_set_possible_duplicate_can_clear_to_none(mocker: Any) -> None:
 
     _, params = cursor.execute.call_args.args
     assert params == (None, None, 501)
+
+
+def test_get_judged_issues_in_window_excludes_already_digested_judgments(
+    mocker: Any,
+) -> None:
+    """Regression test for LOG.md entry 93: a WIP digest left open for
+    days widens window_start back to that digest's own creation date, so
+    an issue already shown in an earlier digest could otherwise resurface
+    again just because its creation timestamp still falls in the
+    (now-wider) window. digest_id IS NULL is what actually prevents a
+    judgment from being selected here more than once - real, not just
+    the time-range filter."""
+
+    connection, cursor = _mock_connection(mocker)
+    cursor.fetchall.return_value = []
+
+    get_judged_issues_in_window(
+        connection,
+        "scikit-learn",
+        "scikit-learn",
+        dt.datetime(2026, 8, 22, tzinfo=dt.UTC),
+        dt.datetime(2026, 8, 25, tzinfo=dt.UTC),
+    )
+
+    sql, params = cursor.execute.call_args.args
+    assert "j.digest_id IS NULL" in sql
+    assert params == (
+        "scikit-learn",
+        "scikit-learn",
+        dt.datetime(2026, 8, 22, tzinfo=dt.UTC),
+        dt.datetime(2026, 8, 25, tzinfo=dt.UTC),
+    )
 
 
 def test_prune_old_issue_embeddings_returns_the_deleted_count(mocker: Any) -> None:

@@ -378,7 +378,20 @@ def get_judged_issues_in_window(
     window_end: dt.datetime,
 ) -> list[JudgedIssue]:
     """Fetch non-bot issues created in [window_start, window_end) that
-    already have a judgment."""
+    already have a judgment and have never yet been shown in any digest.
+
+    `j.digest_id IS NULL` is the real filter, not just "created in
+    window" - LOG.md entry 93: a WIP digest left open for days means
+    window_start keeps reusing that old digest's own window_end, so the
+    window can span several days. Without this filter, an issue already
+    shown in an earlier digest (days ago) would resurface here again
+    every subsequent day the window stays wide, as if freshly reviewed.
+    A judgment's digest_id is set exactly once by link_judgments_to_digest
+    for this "new issue" path - once set, it's excluded here forever,
+    regardless of how wide a later window becomes. This does not affect
+    backlog catch-up, which fetches by explicit github_number
+    (get_judged_issues_by_numbers) and intentionally reassigns digest_id
+    on every re-surfacing (see get_judgment_id_for_issue_number)."""
 
     with connection.cursor() as cursor:
         cursor.execute(
@@ -387,6 +400,7 @@ def get_judged_issues_in_window(
             WHERE i.repo_owner = %s AND i.repo_name = %s
               AND i.github_created_at >= %s AND i.github_created_at < %s
               AND i.is_bot = FALSE
+              AND j.digest_id IS NULL
             ORDER BY i.github_number
             """,
             (repo_owner, repo_name, window_start, window_end),
