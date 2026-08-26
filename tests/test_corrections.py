@@ -121,13 +121,18 @@ def test_extract_corrections_by_issue_ignores_a_bare_hash_number_even_alone() ->
         "sklearn/34649 is not about linear model, it's about SVC",
         "Sklearn/34649 is not about linear model, it's about SVC",
         "SCIKIT-LEARN/34649 is not about linear model, it's about SVC",
+        "`scikit-learn#34649` is not about linear model, it's about SVC",
+        "sklearn#34649 is not about linear model, it's about SVC",
     ],
 )
 def test_extract_corrections_by_issue_accepts_known_short_aliases(body: str) -> None:
     """Real request: the operator may write "scikit-learn/34649" or
     "sklearn/34649" instead of the full "scikit-learn/scikit-learn/34649"
     - and might vary casing depending on mood. Both known aliases must
-    resolve to the same github_number, case-insensitively."""
+    resolve to the same github_number, case-insensitively. LOG.md entry
+    94: real usage showed the operator also writing the alias with "#"
+    instead of "/" (e.g. "scikit-learn#34820") - both separators must
+    work for either alias."""
 
     assert extract_corrections_by_issue(body) == {34649: body}
 
@@ -189,6 +194,28 @@ def test_extract_corrections_by_issue_ignores_a_markdown_links_url() -> None:
     )
 
     assert extract_corrections_by_issue(body) == {}
+
+
+def test_extract_corrections_by_issue_real_world_alias_hash_correction() -> None:
+    """The exact real correction from LOG.md entry 94/daily-log.md
+    2026-08-26, closing digest #23: two bullets both wrote the alias
+    with "#" instead of "/" ("scikit-learn#34820"), which the pattern
+    didn't yet accept - both lines would have silently vanished as
+    unattributed, exactly the entry-92 failure mode again, caught before
+    the next real capture run rather than after."""
+
+    body = (
+        "I have a few comments:\n\n"
+        "* `scikit-learn#34820` should also labelled as `module:cluster`.\n"
+        "* `scikit-learn#34820` is not related to `scikit-learn#34807` at "
+        "all, although they have the same author."
+    )
+
+    result = extract_corrections_by_issue(body)
+
+    assert set(result) == {34820}
+    assert "module:cluster" in result[34820]
+    assert "not related to" in result[34820]
 
 
 def test_format_acknowledgment_with_corrections() -> None:

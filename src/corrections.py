@@ -62,9 +62,11 @@ _REFERENCE_PATTERNS = [
     re.compile(
         r"\b(?:"
         + "|".join(re.escape(alias) for alias in _KNOWN_REPO_ALIASES)
-        + r")/(\d+)\b",
+        + r")[/#](\d+)\b",
         re.IGNORECASE,
-    ),  # known short alias/number, e.g. scikit-learn/34649 or sklearn/34649
+    ),  # known short alias/number or alias#number, e.g. scikit-learn/34649,
+    # sklearn/34649, or scikit-learn#34649 (LOG.md entry 94 - real usage
+    # showed the operator writing the alias with "#" too, not just "/").
 ]
 
 # Bare "#NNN" is deliberately NOT matched here, even though it's a
@@ -128,10 +130,11 @@ def extract_corrections_by_issue(comment_body: str) -> dict[int, str]:
     naming a specific issue (e.g. "`scikit-learn/scikit-learn/34649` is
     not about linear model, it's about SVC", GitHub's own real autolink
     form "scikit-learn/scikit-learn#34649", or the shorter
-    "scikit-learn/34649"/"sklearn/34649") becomes that issue's correction
-    text. Lines naming the same issue twice within one comment are
-    combined into a single correction. A line with no recognizable
-    reference isn't attributed to any judgment (judgment_id is required)
+    "scikit-learn/34649"/"sklearn/34649"/"scikit-learn#34649") becomes
+    that issue's correction text. Lines naming the same issue twice
+    within one comment are combined into a single correction. A line
+    with no recognizable reference isn't attributed to any judgment
+    (judgment_id is required)
     and is dropped rather than silently merged into an unrelated issue's
     correction - this includes a line naming an issue in a *different*
     repo (e.g. "the real duplicate is uxlfoundation/scikit-learn-intelex
