@@ -73,14 +73,16 @@ def no_recent_examples(mocker: Any) -> Any:
 @pytest.fixture(autouse=True)
 def no_duplicate_candidates(mocker: Any) -> Any:
     """Default: an empty embedding pool, no existing embedding for the
-    issue being judged - the duplicate-candidate lookup still runs, it
-    just always finds nothing to report. Dedicated tests further below
+    issue being judged - the duplicate-candidate lookup and the
+    similar-examples retrieval (LOG.md entry 96) both still run, they
+    just always find nothing to report. Dedicated tests further below
     override these to exercise the real lookup/store behavior."""
 
     mocker.patch("src.pipeline.get_issue_embedding", return_value=None)
     mocker.patch("src.pipeline.save_issue_embedding")
     mocker.patch("src.pipeline.get_all_issue_embeddings", return_value=[])
     mocker.patch("src.pipeline.set_possible_duplicate")
+    mocker.patch("src.pipeline.get_reviewed_judgments_with_embeddings", return_value=[])
 
 
 def test_fetch_and_judge_logs_poll_run_summary(
@@ -163,6 +165,7 @@ def test_fetch_and_judge_happy_path(
         body="body",
         known_labels=["Bug", "Documentation"],
         recent_examples=[],
+        similar_examples=[],
     )
     save_judgment.assert_called_once_with(connection, 101, _judgment())
     github_client.fetch_labels.assert_called_once_with("scikit-learn", "scikit-learn")
@@ -673,3 +676,100 @@ def test_fetch_and_judge_does_not_fail_the_judgment_when_embedding_fails(
     assert result.failures == []
     save_judgment.assert_called_once()
     set_dup.assert_not_called()
+    # No embedding means no similar_examples either - degrades to an
+    # empty list, not an error, same as the duplicate lookup above.
+    assert gemini_judge.judge.call_args.kwargs["similar_examples"] == []
+
+
+def test_fetch_and_judge_passes_similar_examples_to_judge(
+    mocker: Any,
+    github_client: Any,
+    gemini_judge: Any,
+    issue_embedder: Any,
+    connection: Any,
+) -> None:
+    """LOG.md entry 96: the real RAG wiring - a similar past reviewed
+    judgment, found via embedding similarity, actually reaches judge()."""
+
+    github_client.fetch_issues_created_between.return_value = [_issue(1, "human")]
+    mocker.patch("src.pipeline.save_issue_snapshots", return_value={1: 101})
+    mocker.patch("src.pipeline.has_judgment", return_value=False)
+    mocker.patch("src.pipeline.save_judgment", return_value=201)
+    issue_embedder.embed.return_value = [1.0, 0.0]
+
+    similar = ReviewedJudgment(
+        issue_title="A similar past issue",
+        issue_body="body",
+        judgment=_judgment(),
+        correction_text="should be Documentation",
+    )
+    mocker.patch(
+        "src.pipeline.get_reviewed_judgments_with_embeddings",
+        return_value=[(55, [1.0, 0.0], similar)],
+    )
+
+    fetch_and_judge(
+        github_client=github_client,
+        gemini_judge=gemini_judge,
+        issue_embedder=issue_embedder,
+        connection=connection,
+        owner="scikit-learn",
+        repo="scikit-learn",
+        window_start=WINDOW_START,
+        window_end=WINDOW_END,
+    )
+
+    passed = gemini_judge.judge.call_args.kwargs["similar_examples"]
+    assert len(passed) == 1
+    assert passed[0].issue_title == "A similar past issue"
+    assert passed[0].similarity == 1.0
+
+
+def test_fetch_and_judge_excludes_the_issue_itself_from_similar_examples(
+    mocker: Any,
+    github_client: Any,
+    gemini_judge: Any,
+    issue_embedder: Any,
+    connection: Any,
+) -> None:
+    """The candidate pool can include the issue's own (already backfilled)
+    embedding, exactly like the possible-duplicate lookup - it must be
+    excluded from its own similar-examples list, not trivially "similar
+    to itself"."""
+
+    github_client.fetch_issues_created_between.return_value = [_issue(1, "human")]
+    mocker.patch("src.pipeline.save_issue_snapshots", return_value={1: 101})
+    mocker.patch("src.pipeline.has_judgment", return_value=False)
+    mocker.patch("src.pipeline.save_judgment", return_value=201)
+    issue_embedder.embed.return_value = [1.0, 0.0]
+
+    itself = ReviewedJudgment(
+        issue_title="Issue 1",
+        issue_body="body",
+        judgment=_judgment(),
+        correction_text=None,
+    )
+    other = ReviewedJudgment(
+        issue_title="Issue 55",
+        issue_body="body",
+        judgment=_judgment(),
+        correction_text=None,
+    )
+    mocker.patch(
+        "src.pipeline.get_reviewed_judgments_with_embeddings",
+        return_value=[(1, [1.0, 0.0], itself), (55, [1.0, 0.0], other)],
+    )
+
+    fetch_and_judge(
+        github_client=github_client,
+        gemini_judge=gemini_judge,
+        issue_embedder=issue_embedder,
+        connection=connection,
+        owner="scikit-learn",
+        repo="scikit-learn",
+        window_start=WINDOW_START,
+        window_end=WINDOW_END,
+    )
+
+    passed = gemini_judge.judge.call_args.kwargs["similar_examples"]
+    assert [example.issue_title for example in passed] == ["Issue 55"]

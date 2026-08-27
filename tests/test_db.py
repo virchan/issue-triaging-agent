@@ -18,6 +18,7 @@ from src.db import (
     get_judgment_id_for_issue_number,
     get_recent_reviewed_judgments,
     get_rejudge_context,
+    get_reviewed_judgments_with_embeddings,
     get_unreviewed_digests,
     mark_corrections_superseded,
     prune_old_issue_embeddings,
@@ -86,6 +87,40 @@ def test_get_all_issue_embeddings_maps_rows(mocker: Any) -> None:
     result = get_all_issue_embeddings(connection)
 
     assert result == [(1, 34649, [0.1, 0.2]), (2, 34650, [0.3, 0.4])]
+
+
+def test_get_reviewed_judgments_with_embeddings_maps_rows(mocker: Any) -> None:
+    connection, cursor = _mock_connection(mocker)
+    cursor.fetchall.return_value = [
+        (
+            34649,
+            [0.1, 0.2],
+            "Issue title",
+            "Issue body",
+            "Bug",
+            False,
+            "summary",
+            "medium",
+            "rationale",
+            0.8,
+            "should be Documentation",
+        )
+    ]
+
+    result = get_reviewed_judgments_with_embeddings(connection)
+
+    assert len(result) == 1
+    github_number, embedding, reviewed = result[0]
+    assert github_number == 34649
+    assert embedding == [0.1, 0.2]
+    assert reviewed.issue_title == "Issue title"
+    assert reviewed.judgment.suggested_label == "Bug"
+    assert reviewed.correction_text == "should be Documentation"
+    assert reviewed.similarity is None
+
+    sql = cursor.execute.call_args.args[0]
+    assert "JOIN issue_embeddings e ON e.issue_id = i.id" in sql
+    assert "d.state = 'reviewed'" in sql
 
 
 def test_set_possible_duplicate_updates_the_judgment_row(mocker: Any) -> None:

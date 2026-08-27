@@ -242,7 +242,7 @@ def test_judge_allows_null_suggested_label(
 
 
 def test_format_examples_empty_list_returns_empty_string() -> None:
-    assert _format_examples([]) == ""
+    assert _format_examples([], header="Header:") == ""
 
 
 def test_format_examples_shows_correction_and_confirmation() -> None:
@@ -275,12 +275,54 @@ def test_format_examples_shows_correction_and_confirmation() -> None:
         ),
     ]
 
-    text = _format_examples(examples)
+    text = _format_examples(examples, header="Header:")
 
     assert "Corrected issue" in text
     assert "corrected: '#1 should be Documentation'" in text
     assert "Confirmed issue" in text
     assert "confirmed correct, no correction needed" in text
+
+
+def test_format_examples_shows_similarity_when_set() -> None:
+    """LOG.md entry 96: similarity is only shown when the example was
+    retrieved by embedding similarity (similarity is not None) - a plain
+    recency-based example doesn't get a fabricated score."""
+
+    examples = [
+        ReviewedJudgment(
+            issue_title="Similar issue",
+            issue_body=None,
+            judgment=IssueJudgment(
+                suggested_label="Bug",
+                is_spam=False,
+                summary="s",
+                priority="medium",
+                rationale="r",
+                confidence=0.8,
+            ),
+            correction_text=None,
+            similarity=0.87,
+        ),
+        ReviewedJudgment(
+            issue_title="Recency-based issue",
+            issue_body=None,
+            judgment=IssueJudgment(
+                suggested_label="Bug",
+                is_spam=False,
+                summary="s",
+                priority="medium",
+                rationale="r",
+                confidence=0.8,
+            ),
+            correction_text=None,
+        ),
+    ]
+
+    text = _format_examples(examples, header="Header:")
+
+    assert "Similarity to this issue: 0.87" in text
+    section_2 = text.split("Recency-based issue")[1]
+    assert "Similarity to this issue" not in section_2
 
 
 def test_judge_includes_recent_examples_in_prompt(
@@ -324,6 +366,55 @@ def test_judge_without_recent_examples_omits_the_section(
 
     prompt = client.models.generate_content.call_args.kwargs["contents"]
     assert "Recent reviewed judgments" not in prompt
+
+
+def test_judge_includes_similar_examples_in_prompt(
+    mocker: Any, client: Any, judge: GeminiJudge
+) -> None:
+    """LOG.md entry 96: similar_examples (retrieval-augmented context,
+    distinct from recent_examples) actually reaches the real prompt sent
+    to Gemini, including its similarity score."""
+
+    client.models.generate_content.return_value = mocker.Mock(text=response_text())
+    examples = [
+        ReviewedJudgment(
+            issue_title="A semantically similar past issue",
+            issue_body=None,
+            judgment=IssueJudgment(
+                suggested_label="Bug",
+                is_spam=False,
+                summary="s",
+                priority="medium",
+                rationale="r",
+                confidence=0.8,
+            ),
+            correction_text="should be Documentation",
+            similarity=0.91,
+        )
+    ]
+
+    judge.judge(
+        title="New issue",
+        body=None,
+        known_labels=KNOWN_LABELS,
+        similar_examples=examples,
+    )
+
+    prompt = client.models.generate_content.call_args.kwargs["contents"]
+    assert "A semantically similar past issue" in prompt
+    assert "Similarity to this issue: 0.91" in prompt
+    assert "should be Documentation" in prompt
+
+
+def test_judge_without_similar_examples_omits_the_section(
+    mocker: Any, client: Any, judge: GeminiJudge
+) -> None:
+    client.models.generate_content.return_value = mocker.Mock(text=response_text())
+
+    judge.judge(title="New issue", body=None, known_labels=KNOWN_LABELS)
+
+    prompt = client.models.generate_content.call_args.kwargs["contents"]
+    assert "Similar past issues" not in prompt
 
 
 PREVIOUS_JUDGMENT = IssueJudgment(

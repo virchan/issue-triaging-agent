@@ -14,13 +14,18 @@ from src.db import (
     get_all_issue_embeddings,
     get_issue_embedding,
     get_recent_reviewed_judgments,
+    get_reviewed_judgments_with_embeddings,
     has_judgment,
     save_issue_embedding,
     save_issue_snapshots,
     save_judgment,
     set_possible_duplicate,
 )
-from src.duplicate_detection import find_possible_duplicate, issue_text
+from src.duplicate_detection import (
+    find_possible_duplicate,
+    find_similar_reviewed_examples,
+    issue_text,
+)
 from src.embeddings import EMBEDDING_MODEL, IssueEmbedder
 from src.gemini_client import GeminiJudge, GeminiResponseError, GeminiUnavailableError
 from src.github_client import GitHubClient, GitHubIssue
@@ -46,24 +51,23 @@ class PipelineResult:
     failures: list[tuple[int, str]] = field(default_factory=list)
 
 
-def _find_and_record_possible_duplicate(
+def _embed_issue(
     *,
     connection: psycopg.Connection[Any],
     issue_embedder: IssueEmbedder,
     issue: GitHubIssue,
     issue_id: int,
-    judgment_id: int,
-) -> None:
+) -> list[float] | None:
     """Embed issue (reusing a stored embedding if one already exists -
-    e.g. from the backfill, or a prior judgment), find the most similar
-    other issue in the pool, and record the result on this judgment.
+    e.g. from the backfill, or a prior judgment). Computed *before*
+    judging now (LOG.md entry 96) - the same embedding is used both to
+    retrieve semantically similar past judgments as RAG context for
+    judge() and, after judging, to find this issue's own
+    possible-duplicate suggestion - one embed call serves both, not two.
 
-    A ranked suggestion, not a classification (LOG.md entries 73-76) -
-    always records the best match found above a loose sanity floor, or
-    explicitly records "none found" rather than leaving the columns
-    unset and ambiguous. Deliberately its own try/except, separate from
-    the judgment's: an embedding-service failure here must never
-    retroactively fail a judgment that already saved successfully.
+    Returns None on a real embedding-service failure - callers must
+    degrade gracefully (empty similar_examples, no duplicate lookup),
+    never fail the judgment itself over this.
     """
 
     try:
@@ -71,19 +75,55 @@ def _find_and_record_possible_duplicate(
         if embedding is None:
             embedding = issue_embedder.embed(issue_text(issue.title, issue.body))
             save_issue_embedding(connection, issue_id, EMBEDDING_MODEL, embedding)
-
-        candidates = [
-            (github_number, vector)
-            for _, github_number, vector in get_all_issue_embeddings(connection)
-            if github_number != issue.number
-        ]
-        match = find_possible_duplicate(embedding, candidates)
-        github_number, similarity = match if match is not None else (None, None)
-        set_possible_duplicate(connection, judgment_id, github_number, similarity)
+        return embedding
     except GeminiUnavailableError as error:
-        LOGGER.warning(
-            f"Duplicate-candidate lookup failed for issue #{issue.number}: {error}"
+        LOGGER.warning(f"Embedding failed for issue #{issue.number}: {error}")
+        return None
+
+
+def _record_possible_duplicate(
+    *,
+    connection: psycopg.Connection[Any],
+    embedding: list[float],
+    issue: GitHubIssue,
+    judgment_id: int,
+) -> None:
+    """Find the most similar other issue in the pool and record the
+    result on this judgment - a ranked suggestion, not a classification
+    (LOG.md entries 73-76), always recording the best match found above
+    a loose sanity floor, or explicitly "none found" rather than leaving
+    the columns unset and ambiguous."""
+
+    candidates = [
+        (github_number, vector)
+        for _, github_number, vector in get_all_issue_embeddings(connection)
+        if github_number != issue.number
+    ]
+    match = find_possible_duplicate(embedding, candidates)
+    github_number, similarity = match if match is not None else (None, None)
+    set_possible_duplicate(connection, judgment_id, github_number, similarity)
+
+
+def _find_similar_examples(
+    *,
+    connection: psycopg.Connection[Any],
+    embedding: list[float],
+    issue: GitHubIssue,
+) -> list[ReviewedJudgment]:
+    """Retrieval-augmented few-shot context for judge() (LOG.md entry
+    96): past reviewed judgments retrieved by embedding similarity to
+    this specific issue, not recency - a genuinely different signal
+    from get_recent_reviewed_judgments, reusing the same embeddings
+    built for duplicate detection."""
+
+    candidates = [
+        (github_number, vector, reviewed)
+        for github_number, vector, reviewed in get_reviewed_judgments_with_embeddings(
+            connection
         )
+        if github_number != issue.number
+    ]
+    return find_similar_reviewed_examples(embedding, candidates)
 
 
 def _judge_and_persist(
@@ -105,6 +145,13 @@ def _judge_and_persist(
     every issue that ended up with a judgment this call, whether freshly
     computed or reused from a prior run. Reusing an existing judgment
     rather than re-calling Gemini for it is deliberate.
+
+    Each issue is embedded *before* judging now (LOG.md entry 96), not
+    after - the embedding is used to retrieve similar_examples for
+    judge()'s RAG context, then reused afterward for the possible-
+    duplicate lookup, one embed call serving both. An embedding failure
+    degrades gracefully (empty similar_examples, no duplicate lookup)
+    without ever blocking the judgment itself.
     """
 
     failures: list[tuple[int, str]] = []
@@ -120,12 +167,27 @@ def _judge_and_persist(
             reused_numbers.append(issue.number)
             continue
 
+        embedding = _embed_issue(
+            connection=connection,
+            issue_embedder=issue_embedder,
+            issue=issue,
+            issue_id=issue_id,
+        )
+        similar_examples = (
+            _find_similar_examples(
+                connection=connection, embedding=embedding, issue=issue
+            )
+            if embedding is not None
+            else []
+        )
+
         try:
             judgment = gemini_judge.judge(
                 title=issue.title,
                 body=issue.body,
                 known_labels=known_labels,
                 recent_examples=recent_examples,
+                similar_examples=similar_examples,
             )
             judgment_id = save_judgment(connection, issue_id, judgment)
             judged_count += 1
@@ -135,13 +197,13 @@ def _judge_and_persist(
             failures.append((issue.number, str(error)))
             continue
 
-        _find_and_record_possible_duplicate(
-            connection=connection,
-            issue_embedder=issue_embedder,
-            issue=issue,
-            issue_id=issue_id,
-            judgment_id=judgment_id,
-        )
+        if embedding is not None:
+            _record_possible_duplicate(
+                connection=connection,
+                embedding=embedding,
+                issue=issue,
+                judgment_id=judgment_id,
+            )
 
     return judged_count, already_judged_count, failures, judged_numbers, reused_numbers
 

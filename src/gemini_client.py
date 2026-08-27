@@ -45,14 +45,28 @@ _JUDGE_INSTRUCTIONS = render_template("judge-instructions.md.jinja").strip()
 _REJUDGE_INSTRUCTIONS = render_template("rejudge-instructions.md.jinja").strip()
 
 
-def _format_examples(examples: list[ReviewedJudgment]) -> str:
+_RECENT_EXAMPLES_HEADER = (
+    "Recent reviewed judgments (for context on your past accuracy):"
+)
+
+_SIMILAR_EXAMPLES_HEADER = (
+    "Similar past issues, retrieved by embedding similarity to this "
+    "issue (LOG.md entry 96) - similarity is a heuristic signal, not a "
+    "guarantee of relevance, so weigh each one on its own merit rather "
+    "than assuming every entry here is actually related:"
+)
+
+
+def _format_examples(examples: list[ReviewedJudgment], *, header: str) -> str:
     if not examples:
         return ""
 
-    lines = ["Recent reviewed judgments (for context on your past accuracy):", ""]
+    lines = [header, ""]
     for index, example in enumerate(examples, start=1):
         judgment = example.judgment
         lines.append(f'{index}. Issue: "{example.issue_title}"')
+        if example.similarity is not None:
+            lines.append(f"   Similarity to this issue: {example.similarity:.2f}")
         lines.append(
             f"   Your judgment: label={judgment.suggested_label or '(none)'}, "
             f"is_spam={judgment.is_spam}, priority={judgment.priority}"
@@ -95,12 +109,19 @@ class GeminiJudge:
         body: str | None,
         known_labels: list[str],
         recent_examples: list[ReviewedJudgment] | None = None,
+        similar_examples: list[ReviewedJudgment] | None = None,
     ) -> IssueJudgment:
         """Produce a structured judgment for one issue.
 
         recent_examples (see src.db.get_recent_reviewed_judgments) are
         injected as few-shot context - real past corrections and
-        confirmations, not model fine-tuning.
+        confirmations, not model fine-tuning. similar_examples (see
+        src.duplicate_detection.find_similar_reviewed_examples, LOG.md
+        entry 96) are a second, distinct kind of context: past reviewed
+        judgments retrieved by embedding similarity to *this* issue
+        specifically, not recency - genuine retrieval-augmented
+        generation, reusing the same embeddings built for duplicate
+        detection.
 
         Raises GeminiResponseError if the model suggests a label outside
         known_labels - this is verified deterministically, not trusted
@@ -116,6 +137,7 @@ class GeminiJudge:
             body=body,
             known_labels=known_labels,
             recent_examples=recent_examples or [],
+            similar_examples=similar_examples or [],
         )
 
         return self._request_judgment(prompt=prompt, known_labels=known_labels)
@@ -129,6 +151,7 @@ class GeminiJudge:
         correction_text: str,
         known_labels: list[str],
         recent_examples: list[ReviewedJudgment] | None = None,
+        similar_examples: list[ReviewedJudgment] | None = None,
     ) -> IssueJudgment:
         """Produce a revised judgment for an issue, informed by a human
         correction - distinct from judge()'s few-shot mechanism, which
@@ -154,6 +177,7 @@ class GeminiJudge:
             correction_text=correction_text,
             known_labels=known_labels,
             recent_examples=recent_examples or [],
+            similar_examples=similar_examples or [],
         )
 
         return self._request_judgment(prompt=prompt, known_labels=known_labels)
@@ -229,14 +253,22 @@ class GeminiJudge:
         body: str | None,
         known_labels: list[str],
         recent_examples: list[ReviewedJudgment],
+        similar_examples: list[ReviewedJudgment],
     ) -> str:
         labels_json = json.dumps(known_labels, ensure_ascii=False, indent=2)
-        examples_section = _format_examples(recent_examples)
+        examples_section = _format_examples(
+            recent_examples, header=_RECENT_EXAMPLES_HEADER
+        )
+        similar_section = _format_examples(
+            similar_examples, header=_SIMILAR_EXAMPLES_HEADER
+        )
 
         return f"""
 {_JUDGE_INSTRUCTIONS}
 
 {examples_section}
+
+{similar_section}
 
 Repository labels:
 {labels_json}
@@ -261,15 +293,23 @@ Issue body:
         correction_text: str,
         known_labels: list[str],
         recent_examples: list[ReviewedJudgment],
+        similar_examples: list[ReviewedJudgment],
     ) -> str:
         labels_json = json.dumps(known_labels, ensure_ascii=False, indent=2)
-        examples_section = _format_examples(recent_examples)
+        examples_section = _format_examples(
+            recent_examples, header=_RECENT_EXAMPLES_HEADER
+        )
+        similar_section = _format_examples(
+            similar_examples, header=_SIMILAR_EXAMPLES_HEADER
+        )
         previous_json = previous_judgment.model_dump_json(indent=2)
 
         return f"""
 {_REJUDGE_INSTRUCTIONS}
 
 {examples_section}
+
+{similar_section}
 
 Repository labels:
 {labels_json}

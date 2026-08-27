@@ -10,12 +10,18 @@ gemini-embedding-001 similarity, real-evaluated to have no threshold
 that cleanly separates duplicate from non-duplicate pairs - so this
 ranks and surfaces the single most similar candidate as a suggestion,
 never a duplicate/not-duplicate classification.
+
+find_similar_reviewed_examples (entry 96) reuses the same embeddings
+and the same loose floor for a different purpose: retrieval-augmented
+few-shot context in judge()'s prompt, not a duplicate suggestion.
 """
 
 from __future__ import annotations
 
 import difflib
+from dataclasses import replace
 
+from src.db import ReviewedJudgment
 from src.embeddings import cosine_similarity
 
 # Below this, a "most similar match" isn't worth surfacing at all - a
@@ -77,3 +83,43 @@ def find_possible_duplicate(
     if best is None or best[1] < MINIMUM_SIMILARITY:
         return None
     return best
+
+
+# How many semantically similar past reviewed judgments to surface as
+# retrieval-augmented few-shot context in judge()'s prompt (LOG.md entry
+# 96) - kept small: the same real evaluation that ruled out a clean
+# duplicate/non-duplicate threshold (entries 74-76) means embedding
+# similarity is a noisy signal here too, not something to lean on for a
+# large context dump.
+SIMILAR_EXAMPLES_LIMIT = 3
+
+
+def find_similar_reviewed_examples(
+    target_embedding: list[float],
+    candidates: list[tuple[int, list[float], ReviewedJudgment]],
+    limit: int = SIMILAR_EXAMPLES_LIMIT,
+) -> list[ReviewedJudgment]:
+    """Rank candidates by cosine similarity to target_embedding, above
+    MINIMUM_SIMILARITY, returning up to `limit` ReviewedJudgment objects
+    (each with .similarity set) - most similar first.
+
+    candidates is (github_number, embedding, ReviewedJudgment) triples -
+    the caller is responsible for excluding the target issue's own
+    embedding first, same convention as find_possible_duplicate. Reuses
+    the same loose floor deliberately: this is retrieval-augmented
+    context for the model to weigh, not a precision-guaranteed lookup -
+    an occasionally irrelevant example can slip through here, the same
+    real caveat as an occasional wrong duplicate suggestion (LOG.md
+    entry 85).
+    """
+
+    scored = [
+        (cosine_similarity(target_embedding, embedding), reviewed)
+        for _, embedding, reviewed in candidates
+    ]
+    above_floor = [pair for pair in scored if pair[0] >= MINIMUM_SIMILARITY]
+    above_floor.sort(key=lambda pair: pair[0], reverse=True)
+
+    return [
+        replace(reviewed, similarity=score) for score, reviewed in above_floor[:limit]
+    ]

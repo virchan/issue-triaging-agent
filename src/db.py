@@ -833,6 +833,11 @@ class ReviewedJudgment:
     issue_body: str | None
     judgment: IssueJudgment
     correction_text: str | None
+    similarity: float | None = None
+    """Set only when retrieved via embedding similarity (see
+    src.duplicate_detection.find_similar_reviewed_examples) - None for
+    the plain recency-based few-shot path (get_recent_reviewed_judgments),
+    which has no similarity score to attach."""
 
 
 def get_recent_reviewed_judgments(
@@ -883,6 +888,59 @@ def get_recent_reviewed_judgments(
                 confidence=row[7],
             ),
             correction_text=row[8],
+        )
+        for row in rows
+    ]
+
+
+def get_reviewed_judgments_with_embeddings(
+    connection: psycopg.Connection[Any],
+) -> list[tuple[int, list[float], ReviewedJudgment]]:
+    """Fetch every reviewed judgment that also has a stored embedding, as
+    (github_number, embedding, ReviewedJudgment) - the raw candidate pool
+    for retrieval-augmented few-shot context (LOG.md entry 96).
+
+    A deliberately "dumb" fetch, mirroring get_all_issue_embeddings: no
+    similarity ranking here - see
+    src.duplicate_detection.find_similar_reviewed_examples for that.
+    Restricted to reviewed digests, same as get_recent_reviewed_judgments
+    - this is the intersection of "has an embedding" and "has a
+    human-reviewed outcome," not just any judged issue.
+    """
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT i.github_number, e.embedding, i.title, i.body,
+                   j.suggested_label, j.is_spam, j.summary, j.priority,
+                   j.rationale, j.confidence, c.comment_body
+            FROM judgments j
+            JOIN issues i ON i.id = j.issue_id
+            JOIN digests d ON d.id = j.digest_id
+            JOIN issue_embeddings e ON e.issue_id = i.id
+            LEFT JOIN corrections c ON c.judgment_id = j.id AND c.superseded = FALSE
+            WHERE d.state = 'reviewed'
+            """
+        )
+        rows = cursor.fetchall()
+
+    return [
+        (
+            row[0],
+            row[1],
+            ReviewedJudgment(
+                issue_title=row[2],
+                issue_body=row[3],
+                judgment=IssueJudgment(
+                    suggested_label=row[4],
+                    is_spam=row[5],
+                    summary=row[6],
+                    priority=row[7],
+                    rationale=row[8],
+                    confidence=row[9],
+                ),
+                correction_text=row[10],
+            ),
         )
         for row in rows
     ]
