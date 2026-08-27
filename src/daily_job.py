@@ -46,15 +46,6 @@ WINDOW_DURATION = dt.timedelta(hours=24)
 # shadow repo (created by hand, not by this code).
 DIGEST_LABEL = "daily digest"
 MANUALLY_TRIGGERED_LABEL = "manually-triggered"
-AGENT_TRIGGERED_LABEL = "triggered-by:agent"
-TESTING_LABEL = "testing"
-
-# While the system is still being tested rather than trusted as
-# production output, every digest also gets TESTING_LABEL so a reader
-# can't mistake in-progress testing activity for finished output. Flip
-# to False (a one-line change) once the operator considers it
-# production-ready.
-STILL_TESTING = True
 
 LOGGER = logging.getLogger(__name__)
 
@@ -141,9 +132,11 @@ def run_daily_cycle(
 
     `manually_triggered` is True only when this call came from app.py's
     POST /trigger (the on-demand path), never from the scheduled Cloud
-    Run Job - it controls whether the published digest gets
-    MANUALLY_TRIGGERED_LABEL or AGENT_TRIGGERED_LABEL alongside
-    DIGEST_LABEL.
+    Run Job - it controls whether the published digest also gets
+    MANUALLY_TRIGGERED_LABEL alongside DIGEST_LABEL (no extra label for
+    the normal scheduled path - LOG.md entry 98: "triggered-by:agent"
+    and "testing" were both dropped once the project moved past needing
+    to flag every digest as in-progress/experimental).
 
     Returns with digest=None, published=None (no GitHub issue created,
     no new digests row) when a same-day WIP digest already exists and
@@ -190,11 +183,8 @@ def run_daily_cycle(
     )
 
     digest_labels = [DIGEST_LABEL]
-    digest_labels.append(
-        MANUALLY_TRIGGERED_LABEL if manually_triggered else AGENT_TRIGGERED_LABEL
-    )
-    if STILL_TESTING:
-        digest_labels.append(TESTING_LABEL)
+    if manually_triggered:
+        digest_labels.append(MANUALLY_TRIGGERED_LABEL)
 
     pipeline_result = fetch_and_judge(
         github_client=github_client,
