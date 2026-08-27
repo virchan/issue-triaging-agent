@@ -8,7 +8,7 @@ import pytest
 from src.corrections import CaptureResult
 from src.daily_job import WINDOW_DURATION, run_daily_cycle
 from src.db import UnreviewedDigest
-from src.digest import DigestContent
+from src.digest import OPERATOR_TIMEZONE, DigestContent
 from src.pipeline import BACKLOG_CAP, PipelineResult
 
 _EMPTY = PipelineResult(fetched=0, bot_excluded=0, judged=0, already_judged=0)
@@ -538,9 +538,17 @@ def test_run_daily_cycle_skips_digest_for_same_day_wip_with_nothing_new(
         clients_and_connection
     )
 
-    same_day_wip = _unreviewed(
-        3, 20, window_end=dt.datetime.now(dt.UTC) - dt.timedelta(hours=1)
+    # "Same day" is judged in OPERATOR_TIMEZONE by the production code
+    # (matching build_digest's own display_date), not UTC - a fixed
+    # "1 hour ago" is only reliably the same day near the middle of the
+    # day. Anchoring on today's local midnight is same-day by
+    # construction at any time of day the test happens to run.
+    today_start_local = (
+        dt.datetime.now(dt.UTC)
+        .astimezone(OPERATOR_TIMEZONE)
+        .replace(hour=0, minute=0, second=0, microsecond=0)
     )
+    same_day_wip = _unreviewed(3, 20, window_end=today_start_local.astimezone(dt.UTC))
     mocker.patch("src.daily_job.get_unreviewed_digests", return_value=[same_day_wip])
     github_client.fetch_labels.return_value = ["Bug"]
     mocker.patch("src.daily_job.get_recent_reviewed_judgments", return_value=[])
