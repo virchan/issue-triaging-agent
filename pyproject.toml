@@ -19,6 +19,9 @@ dev = [
     "pytest-mock>=3.15.1",
     "ruff>=0.16.2",
 ]
+docs = [
+    "matplotlib>=3.11.1",
+]
 
 [tool.pytest.ini_options]
 markers = [
