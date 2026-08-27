@@ -1,12 +1,12 @@
 """Check the deterministic duplicate-detection heuristic against real,
 adjudicated scikit-learn issue pairs.
 
-The pairs below are transcribed from duplicated-issues-example.md (kept
-local-only, gitignored - see LOG.md entry 73) - real cases the operator
-has personally adjudicated, both true duplicates and superficially
-similar but unrelated issues (the false-positive check). This script
-answers, with real data rather than speculation: does similarity_score
-actually separate the two groups, and where would a threshold go?
+The pairs below are transcribed from the operator's own local,
+personally-adjudicated notes (kept local, not part of this repo) -
+real cases spanning both true duplicates and superficially similar but
+unrelated issues (the false-positive check). This script answers, with
+real data rather than speculation: does similarity_score actually
+separate the two groups, and where would a threshold go?
 
 Run with:
     uv run python -m scripts.eval_duplicate_heuristic
@@ -20,7 +20,7 @@ from src.github_client import GitHubClient
 OWNER = "scikit-learn"
 REPO = "scikit-learn"
 
-# (issue_a, issue_b, is_duplicate) - transcribed from duplicated-issues-example.md.
+# (issue_a, issue_b, is_duplicate) - transcribed from the operator's own local notes.
 PAIRS: list[tuple[int, int, bool]] = [
     (31593, 32150, True),
     (32961, 33002, True),

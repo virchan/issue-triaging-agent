@@ -2,16 +2,15 @@ name: Deploy
 
 # Manual only - a button press in the Actions tab, not an auto-deploy on
 # every push. Rebuilding/redeploying is a deliberate act, same as the
-# local CLI flow it replaces (see LOG.md).
+# local CLI flow it replaces.
 on:
   workflow_dispatch: {}
 
 # id-token: write is required for Workload Identity Federation - GitHub
 # mints a short-lived OIDC token this workflow exchanges for GCP access.
-# No GCP credential is ever stored in this repo (see LOG.md for why).
-# issues: write lets the final step post this run's real outcome as an
-# issue in this repo, via GitHub's own automatic, repo-scoped token - no
-# new secret (LOG.md entry 80).
+# No GCP credential is ever stored in this repo. issues: write lets the
+# final step post this run's real outcome as an issue in this repo, via
+# GitHub's own automatic, repo-scoped token - no new secret.
 permissions:
   contents: read
   id-token: write

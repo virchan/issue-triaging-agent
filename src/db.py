@@ -381,8 +381,8 @@ def get_judged_issues_in_window(
     already have a judgment and have never yet been shown in any digest.
 
     `j.digest_id IS NULL` is the real filter, not just "created in
-    window" - LOG.md entry 93: a WIP digest left open for days means
-    window_start keeps reusing that old digest's own window_end, so the
+    window" - a WIP digest left open for days means window_start keeps
+    reusing that old digest's own window_end, so the
     window can span several days. Without this filter, an issue already
     shown in an earlier digest (days ago) would resurface here again
     every subsequent day the window stays wide, as if freshly reviewed.
@@ -898,7 +898,7 @@ def get_reviewed_judgments_with_embeddings(
 ) -> list[tuple[int, list[float], ReviewedJudgment]]:
     """Fetch every reviewed judgment that also has a stored embedding, as
     (github_number, embedding, ReviewedJudgment) - the raw candidate pool
-    for retrieval-augmented few-shot context (LOG.md entry 96).
+    for retrieval-augmented few-shot context.
 
     A deliberately "dumb" fetch, mirroring get_all_issue_embeddings: no
     similarity ranking here - see

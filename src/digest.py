@@ -95,23 +95,23 @@ def _group_issues_by_priority(issues: list[JudgedIssue]) -> list[dict[str, Any]]
 
     Each issue's reference is a real, clickable link - `[<code>owner/repo
     #number</code>](redirect.github.com/...)` in the template - GitHub's
-    own real autolink syntax as the display text (LOG.md entry 87), not
-    the inert backtick-wrapped `owner/repo/number` text used before the
+    own real autolink syntax as the display text, not the inert
+    backtick-wrapped `owner/repo/number` text used before the
     redirect.github.com change. Writing `owner/repo#NNN` as plain text
     targeting a real github.com issue/PR would normally create its own
     GitHub cross-reference independent of any surrounding link - but
     wrapped in `<code>` with a redirect.github.com href, empirically
-    confirmed not to (LOG.md entry 87 traced a real correction comment
-    using this exact form to a target issue's timeline and found no
-    cross-reference from it). html_url itself is not passed to the
-    template - only redirect_url is rendered, real confirmed to not
-    create a cross-reference (LOG.md entry 71); keeping a second,
-    redundant "Link:" field showing the same URL twice per issue wasn't
-    worth it once that was independently confirmed live.
+    confirmed not to (traced a real correction comment using this exact
+    form to a target issue's timeline and found no cross-reference from
+    it). html_url itself is not passed to the template - only
+    redirect_url is rendered, real confirmed to not create a
+    cross-reference; keeping a second, redundant "Link:" field showing
+    the same URL twice per issue wasn't worth it once that was
+    independently confirmed live.
 
     possible_duplicate (None unless set) is a ranked suggestion, not a
-    classification (LOG.md entries 73-76) - the most similar other issue
-    found by embedding similarity, above a loose sanity floor. Computed
+    classification - the most similar other issue found by embedding
+    similarity, above a loose sanity floor. Computed
     once at judgment time (src.pipeline._find_and_record_possible_duplicate),
     not here - this only renders whatever was already stored.
     """

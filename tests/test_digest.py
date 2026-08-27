@@ -149,7 +149,7 @@ def test_format_digest_body_does_not_flag_a_single_unclosed_backtick_fence() -> 
 
 def test_format_digest_body_never_shows_the_removed_link_field() -> None:
     """Removed once the redirect.github.com heading link was confirmed
-    working live twice (LOG.md entry 72) - kept redundant with itself
+    working live twice - kept redundant with itself
     otherwise, showing the same URL twice per issue for no real benefit."""
 
     body = format_digest_body(dt.date(2026, 8, 4), [_judged_issue(1)])
@@ -162,15 +162,15 @@ def test_format_digest_body_never_creates_a_clickable_cross_reference() -> None:
     A markdown link whose target is a real github.com issue/PR URL
     creates a visible GitHub cross-reference on that issue - confirmed
     empirically. The heading reference is a real, clickable link using
-    GitHub's own owner/repo#number autolink text (LOG.md entry 87), but
+    GitHub's own owner/repo#number autolink text, but
     its target must be the redirect.github.com form (confirmed
     empirically NOT to create a cross-reference even with this exact
-    text - see LOG.md entries 67, 71, 87), never a raw github.com URL.
+    text), never a raw github.com URL.
     The reference text must appear exactly once - inside that link, not
     also as bare, unprotected text elsewhere that GitHub's own autolinker
     could pick up independently of the link. The separate "Link:" field
     (which used to carry the real URL as a backup) was removed once this
-    was independently confirmed live twice - see LOG.md entry 72.
+    was independently confirmed live twice.
     """
 
     body = format_digest_body(dt.date(2026, 8, 4), [_judged_issue(34649)])

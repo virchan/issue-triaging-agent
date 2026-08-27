@@ -2,11 +2,13 @@
 workflows - posted as a new issue in issue-triaging-agent itself (the
 code repo, not the digests repo), so a workflow's real outcome can be
 confirmed by fetching an issue rather than only checking the deployed
-artifacts afterward (LOG.md entry 80).
+artifacts afterward.
 
 Rendered via this project's existing Jinja templates (src.rendering),
 not built as inline strings in the workflow YAML - the same reasoning
-as entry 69's digest/acknowledgment templates.
+as the digest/acknowledgment templates: editing wording is a plain-text
+edit with no Python diff noise, and the template reads the way it will
+actually render, not wrapped in a triple-quoted Python string.
 """
 
 from __future__ import annotations

@@ -105,7 +105,7 @@ def test_extract_corrections_by_issue_ignores_a_bare_hash_number() -> None:
 
 
 def test_extract_corrections_by_issue_ignores_a_bare_hash_number_even_alone() -> None:
-    """Deliberate, per LOG.md entry 67: bare "#NNN" is reserved for real,
+    """Deliberate: bare "#NNN" is reserved for real,
     clickable same-repo references (e.g. pointing at another digest
     thread) and must never be treated as a scikit-learn reference, even
     when it's the only thing on the line - not just when it's a stray
@@ -129,8 +129,8 @@ def test_extract_corrections_by_issue_accepts_known_short_aliases(body: str) -> 
     """Real request: the operator may write "scikit-learn/34649" or
     "sklearn/34649" instead of the full "scikit-learn/scikit-learn/34649"
     - and might vary casing depending on mood. Both known aliases must
-    resolve to the same github_number, case-insensitively. LOG.md entry
-    94: real usage showed the operator also writing the alias with "#"
+    resolve to the same github_number, case-insensitively. Real usage
+    also showed the operator writing the alias with "#"
     instead of "/" (e.g. "scikit-learn#34820") - both separators must
     work for either alias."""
 
@@ -138,10 +138,10 @@ def test_extract_corrections_by_issue_accepts_known_short_aliases(body: str) -> 
 
 
 def test_extract_corrections_by_issue_accepts_githubs_real_autolink_form() -> None:
-    """LOG.md entry 87: the operator's own daily-log.md flagged that
-    "owner/repo/number" isn't GitHub's real, clickable reference syntax -
-    "owner/repo#number" is (per GitHub's autolinked-references docs).
-    Recognized as an addition, not a replacement for the existing forms."""
+    """The operator flagged that "owner/repo/number" isn't GitHub's
+    real, clickable reference syntax - "owner/repo#number" is (per
+    GitHub's autolinked-references docs). Recognized as an addition,
+    not a replacement for the existing forms."""
 
     body = "`scikit-learn/scikit-learn#34649` is not about linear model, it's about SVC"
     assert extract_corrections_by_issue(body) == {34649: body}
@@ -149,7 +149,7 @@ def test_extract_corrections_by_issue_accepts_githubs_real_autolink_form() -> No
 
 def test_extract_corrections_by_issue_ignores_a_different_repos_reference() -> None:
     """A real duplicate can live in a repo this agent has no judgments
-    for (e.g. uxlfoundation/scikit-learn-intelex, LOG.md entry 85) - such
+    for (e.g. uxlfoundation/scikit-learn-intelex) - such
     a reference must not be misattributed to a scikit-learn/scikit-learn
     judgment sharing the same issue number by coincidence."""
 
@@ -158,7 +158,7 @@ def test_extract_corrections_by_issue_ignores_a_different_repos_reference() -> N
 
 
 def test_extract_corrections_by_issue_real_world_mixed_repo_correction() -> None:
-    """The exact real correction from LOG.md entry 85/daily-log.md
+    """The exact real correction from a real digest closed on
     2026-08-24: one line names both the scikit-learn issue being
     corrected and, separately, where the real duplicate actually lives -
     only the former is a valid attribution target.
@@ -166,7 +166,7 @@ def test_extract_corrections_by_issue_real_world_mixed_repo_correction() -> None
     This is the actual comment text, markdown link and all - an earlier
     version of this test simplified the cross-repo mention to plain
     backtick-wrapped text, which happened to not exercise the real
-    markdown-link-in-a-URL bug (LOG.md entry 92) at all. Correction
+    markdown-link-in-a-URL bug at all. Correction
     capture on the real comment misattributed this whole line to a
     phantom "issue #3377" instead of #34807 - confirmed against the real
     production log - because the link's own redirect.github.com target
@@ -182,7 +182,7 @@ def test_extract_corrections_by_issue_real_world_mixed_repo_correction() -> None
 
 
 def test_extract_corrections_by_issue_ignores_a_markdown_links_url() -> None:
-    """LOG.md entry 92: a markdown link's URL must never be scanned as a
+    """A markdown link's URL must never be scanned as a
     reference, even when the line has no other candidate text at all -
     the redirect.github.com target here is shaped exactly like
     owner/repo/number and would otherwise misattribute to a phantom
@@ -197,12 +197,12 @@ def test_extract_corrections_by_issue_ignores_a_markdown_links_url() -> None:
 
 
 def test_extract_corrections_by_issue_real_world_alias_hash_correction() -> None:
-    """The exact real correction from LOG.md entry 94/daily-log.md
-    2026-08-26, closing digest #23: two bullets both wrote the alias
+    """The exact real correction from closing digest #23 on
+    2026-08-26: two bullets both wrote the alias
     with "#" instead of "/" ("scikit-learn#34820"), which the pattern
     didn't yet accept - both lines would have silently vanished as
-    unattributed, exactly the entry-92 failure mode again, caught before
-    the next real capture run rather than after."""
+    unattributed, the same failure mode as a related markdown-link bug,
+    caught before the next real capture run rather than after."""
 
     body = (
         "I have a few comments:\n\n"
@@ -411,7 +411,7 @@ def test_capture_corrections_skips_if_issue_still_open(
 def test_capture_corrections_reports_a_reference_that_matches_no_judgment(
     mocker: Any, shadow_client: Any, gemini_judge: Any, connection: Any
 ) -> None:
-    """LOG.md entry 72: a correction referencing a syntactically valid
+    """A correction referencing a syntactically valid
     but never-judged issue (a typo, or a real issue not yet surfaced)
     must not vanish silently - it's a different failure than
     unattributed_comment_ids (no reference found at all), and needs its

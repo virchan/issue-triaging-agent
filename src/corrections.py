@@ -30,8 +30,8 @@ LOGGER = logging.getLogger(__name__)
 # Known short names the operator might casually use for scikit-learn/
 # scikit-learn instead of spelling out the full owner/repo. An allowlist,
 # not open-ended fuzzy matching: a pattern loose enough to guess at any
-# "word/number" is exactly what caused the entry 63 incident (a stray
-# "#13" elsewhere in a comment got misattributed). Anything not on this
+# "word/number" is exactly what caused a real incident where a stray
+# "#13" elsewhere in a comment got misattributed. Anything not on this
 # list, or not in one of the recognized forms below, isn't matched - it
 # falls through to extract_corrections_by_issue's existing
 # unattributed-comment reporting rather than being guessed at. Add more
@@ -41,9 +41,9 @@ _KNOWN_REPO_ALIASES = ("scikit-learn", "sklearn")
 # The one real GitHub org/repo this agent tracks judgments for - the only
 # owner/repo#number reference _SOURCE_REPO_HASH_PATTERN below recognizes.
 # A reference naming any *other* repo (e.g. a real duplicate that lives in
-# uxlfoundation/scikit-learn-intelex, LOG.md entry 85) has no judgment to
-# attribute a correction to here, so it's correctly left unmatched -
-# same allowlist discipline as _KNOWN_REPO_ALIASES, not a gap to widen.
+# a different repo entirely) has no judgment to attribute a correction to
+# here, so it's correctly left unmatched - same allowlist discipline as
+# _KNOWN_REPO_ALIASES, not a gap to widen.
 _SOURCE_REPO_HASH_PATTERN = re.compile(
     r"scikit-learn/scikit-learn#(\d+)", re.IGNORECASE
 )
@@ -65,8 +65,8 @@ _REFERENCE_PATTERNS = [
         + r")[/#](\d+)\b",
         re.IGNORECASE,
     ),  # known short alias/number or alias#number, e.g. scikit-learn/34649,
-    # sklearn/34649, or scikit-learn#34649 (LOG.md entry 94 - real usage
-    # showed the operator writing the alias with "#" too, not just "/").
+    # sklearn/34649, or scikit-learn#34649 - real usage showed the
+    # operator writing the alias with "#" too, not just "/".
 ]
 
 # Bare "#NNN" is deliberately NOT matched here, even though it's a
@@ -74,10 +74,10 @@ _REFERENCE_PATTERNS = [
 # a real, clickable same-repo reference to another digest thread (see
 # digest.py's wip_digest_issue_number reminder line and corrections.py's
 # SupersededCorrection message). Recognizing it here too would silently
-# reintroduce the exact ambiguity entry 63 fixed, just from the other
-# direction. _SOURCE_REPO_HASH_PATTERN above is unambiguous because it
-# requires the literal "scikit-learn/scikit-learn" prefix before the "#" -
-# a standalone "#NNN" never matches it.
+# reintroduce a real ambiguity a stray "#NNN" caused once before, just
+# from the other direction. _SOURCE_REPO_HASH_PATTERN above is
+# unambiguous because it requires the literal "scikit-learn/scikit-learn"
+# prefix before the "#" - a standalone "#NNN" never matches it.
 
 # How many corrections get an actual re-judge (a fresh Gemini call) per
 # capture_corrections call. Corrections beyond this are still recorded
@@ -93,7 +93,7 @@ _MARKDOWN_LINK_PATTERN = re.compile(r"\[([^\]]*)\]\(https?://[^)]*\)")
 def _strip_markdown_link_urls(line: str) -> str:
     """Unwrap `[text](url)` down to just `text` before reference-matching.
 
-    LOG.md entry 92: a real correction embedded a markdown link whose
+    A real correction once embedded a markdown link whose
     target was `https://redirect.github.com/uxlfoundation/scikit-learn-intelex/issues/3377`
     - a URL shaped exactly like `owner/repo/issues/number`, which the
     (already loose) owner/repo/number pattern matched, misattributing
@@ -196,8 +196,7 @@ class CaptureResult:
     judged - distinct from unattributed_comment_ids (no reference found
     at all). Without tracking this separately, a correction referencing
     an unjudged issue (a typo, or a real issue the agent hasn't surfaced
-    yet) would be silently dropped with no trace anywhere - see LOG.md
-    entry 72."""
+    yet) would be silently dropped with no trace anywhere."""
     superseded: list[SupersededCorrection] = field(default_factory=list)
     capped: int = 0
     """Corrections recorded as authoritative but not re-judged this call
@@ -264,7 +263,7 @@ def capture_corrections(
     correction per issue, not one correction for the whole comment.
 
     Two distinct ways a correction can go unrecorded, both reported back
-    so nothing is silently dropped without a trace (see LOG.md entry 72):
+    so nothing is silently dropped without a trace:
     a comment with no parseable reference on any line at all
     (unattributed_comment_ids), and a comment with a syntactically valid
     reference that matches no issue this agent has ever judged - a typo,

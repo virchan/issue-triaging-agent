@@ -84,7 +84,7 @@ def test_embed_translates_provider_failure(
 def test_embed_retries_on_rate_limit_then_succeeds(
     mocker: Any, client: Any, embedder: IssueEmbedder
 ) -> None:
-    """LOG.md entry 80: the first real backfill run lost 751 of 1,159
+    """A real backfill run once lost 751 of 1,159
     issues to 429s with no retry at all. A transient rate limit that
     clears within a couple of tries must not be treated as a permanent
     failure."""

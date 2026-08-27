@@ -1,13 +1,13 @@
 """Backfill of duplicate-candidate embeddings - full sweep on first run,
 incremental on every run after.
 
-LOG.md entry 75: the operator's real adjudicated duplicate examples came
-from scikit-learn's broader issue history, not just issues this agent
-has triaged - so the duplicate-candidate pool needs backfilling with a
-real slice of that history, not only issues judged going forward.
+The operator's real adjudicated duplicate examples came from
+scikit-learn's broader issue history, not just issues this agent has
+triaged - so the duplicate-candidate pool needs backfilling with a real
+slice of that history, not only issues judged going forward.
 Scoped to the last 2 years on first run (the operator's own choice - a
 bounded, realistic window, not scikit-learn's entire multi-year
-history). Runs weekly via a scheduled Cloud Run Job (LOG.md entry 78) -
+history). Runs weekly via a scheduled Cloud Run Job -
 get_backfill_state/set_backfill_state track how far a prior run got, so
 a weekly re-run only fetches what's new since then (~7 days' worth, a
 few seconds of work) rather than re-sweeping all 2 years every time.
@@ -19,17 +19,17 @@ embedding.
 
 Chunked into 7-day windows, not one big query: GitHub's Search API caps
 results at 1000 per query, and scikit-learn's real issue volume over
-even a month could plausibly approach that (confirmed empirically - see
-LOG.md entry 78 - 1,159 real issues in the full 2-year window). A short
+even a month could plausibly approach that (confirmed empirically -
+1,159 real issues in the full 2-year window). A short
 delay between chunks keeps this comfortably under the Search API's own
 (stricter than the regular REST API's) rate limit. Chunking still
 matters even once runs are incremental: a missed scheduled run could
 leave a gap wider than one week.
 
 DELAY_BETWEEN_EMBEDS_SECONDS paces individual embedding calls too, not
-just chunks - the first real run (LOG.md entry 80) lost 751 of 1,159
-issues to 429 Too Many Requests, because a chunk with 15-20 issues fired
-that many embed() calls back-to-back with nothing spacing them out.
+just chunks - the first real run lost 751 of 1,159 issues to 429 Too
+Many Requests, because a chunk with 15-20 issues fired that many
+embed() calls back-to-back with nothing spacing them out.
 IssueEmbedder.embed() itself now also retries on a 429 specifically, so
 this is a second, complementary layer - reduces how often a 429 happens
 at all, rather than only recovering after it does.
@@ -160,7 +160,7 @@ def main() -> None:
         # doesn't advance this.
         set_backfill_state(connection, window_end)
 
-    # A structured event, not just the print() below - LOG.md entry 80's
+    # A structured event, not just the print() below - the
     # backfill-trigger workflow parses these as real JSON fields (Cloud
     # Logging jsonPayload), not by regexing free text out of stdout.
     LOGGER.info(

@@ -284,7 +284,7 @@ def test_format_examples_shows_correction_and_confirmation() -> None:
 
 
 def test_format_examples_shows_similarity_when_set() -> None:
-    """LOG.md entry 96: similarity is only shown when the example was
+    """Similarity is only shown when the example was
     retrieved by embedding similarity (similarity is not None) - a plain
     recency-based example doesn't get a fabricated score."""
 
@@ -371,7 +371,7 @@ def test_judge_without_recent_examples_omits_the_section(
 def test_judge_includes_similar_examples_in_prompt(
     mocker: Any, client: Any, judge: GeminiJudge
 ) -> None:
-    """LOG.md entry 96: similar_examples (retrieval-augmented context,
+    """similar_examples (retrieval-augmented context,
     distinct from recent_examples) actually reaches the real prompt sent
     to Gemini, including its similarity score."""
 

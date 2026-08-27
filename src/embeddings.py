@@ -1,12 +1,12 @@
 """Semantic-similarity embeddings for duplicate-issue detection.
 
 Escalation from src/duplicate_detection.py's deterministic heuristic,
-which entry 74's real evaluation ruled out - character-level text
+which real evaluation ruled out - character-level text
 similarity couldn't separate real adjudicated duplicate pairs from
 superficially similar but unrelated ones. gemini-embedding-001 with
 task_type="SEMANTIC_SIMILARITY" is Google's own documented use case for
 duplicate detection (confirmed via ai.google.dev, not assumed), and free
-of charge in the free tier - see LOG.md entry 74.
+of charge in the free tier.
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ from src.gemini_client import GeminiConfigurationError, GeminiUnavailableError
 
 EMBEDDING_MODEL = "gemini-embedding-001"
 
-# LOG.md entry 80: the first real backfill run lost 751 of 1,159 issues
+# A real backfill run once lost 751 of 1,159 issues
 # to 429 Too Many Requests - a burst of embed() calls within one chunk,
 # with nothing pacing them. Retried here, not just logged and given up
 # on, and only for 429 specifically (error.code) - any other failure

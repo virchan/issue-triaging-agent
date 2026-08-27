@@ -37,7 +37,7 @@ CREATE TABLE IF NOT EXISTS digests (
 
 -- Matches src/judgment.py's IssueJudgment, plus two columns for the
 -- duplicate-candidate feature (dropped from the original MVP, revisited
--- with real evidence - see LOG.md entries 73-76). possible_duplicate_*
+-- once real evidence supported it). possible_duplicate_*
 -- is a ranked suggestion computed once at judgment time from
 -- issue_embeddings below, not a classification - real evaluation
 -- against adjudicated pairs found no threshold that cleanly separates
@@ -92,8 +92,8 @@ CREATE TABLE IF NOT EXISTS backfill_state (
 
 -- The operator's corrections, parsed from their comments on a digest
 -- issue - publish-then-review-and-correct. These feed back into future
--- prompts as few-shot context and grow the golden evaluation set
--- (open-questions.md items 3-4). One GitHub comment can correct several
+-- prompts as few-shot context and grow the golden evaluation set.
+-- One GitHub comment can correct several
 -- issues at once (one bullet per issue), so the uniqueness is on the
 -- (comment, judgment) pair, not the comment alone - a comment can
 -- legitimately produce more than one correction row.

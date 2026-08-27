@@ -74,7 +74,7 @@ def no_recent_examples(mocker: Any) -> Any:
 def no_duplicate_candidates(mocker: Any) -> Any:
     """Default: an empty embedding pool, no existing embedding for the
     issue being judged - the duplicate-candidate lookup and the
-    similar-examples retrieval (LOG.md entry 96) both still run, they
+    similar-examples retrieval both still run, they
     just always find nothing to report. Dedicated tests further below
     override these to exercise the real lookup/store behavior."""
 
@@ -688,7 +688,7 @@ def test_fetch_and_judge_passes_similar_examples_to_judge(
     issue_embedder: Any,
     connection: Any,
 ) -> None:
-    """LOG.md entry 96: the real RAG wiring - a similar past reviewed
+    """The real RAG wiring - a similar past reviewed
     judgment, found via embedding similarity, actually reaches judge()."""
 
     github_client.fetch_issues_created_between.return_value = [_issue(1, "human")]

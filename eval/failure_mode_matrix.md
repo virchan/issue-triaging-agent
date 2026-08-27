@@ -1,8 +1,8 @@
 # Failure-mode matrix
 
-The dimensions this project's evaluation should cover, checked against what the real golden set (`eval/golden_set.json`, 7 examples as of 2026-08-12) actually contains — not a hypothetical list. This exists specifically because of the `us-census-chat-agent` lesson: build this matrix *before* declaring the vertical slice done, so scope gaps are caught here, not discovered later by an external reviewer.
+The dimensions this project's evaluation should cover, checked against what the real golden set (`eval/golden_set.json`, 7 examples as of 2026-08-12) actually contains — not a hypothetical list. This matrix is built *before* declaring a vertical slice done, so scope gaps are caught here, not discovered later by an external reviewer.
 
-Adapted from design-plan.md §8's original dimensions: "no clear duplicate" is dropped, since duplicate-candidate detection was explicitly cut from the MVP (Step 11, LOG.md entry 18) — evaluating a capability that doesn't exist would be dishonest, not thorough.
+At the time this matrix was written, "no clear duplicate" was dropped as a dimension, since duplicate-candidate detection hadn't been built yet — evaluating a capability that doesn't exist would be dishonest, not thorough. (Duplicate detection has since been implemented; this matrix is due for a refresh to reflect that - see the golden set's own growth for the current state.)
 
 ## Coverage as of 2026-08-12 (7 real examples)
 
@@ -23,6 +23,6 @@ Adapted from design-plan.md §8's original dimensions: "no clear duplicate" is d
 
 ## What this means
 
-Five real gaps, stated plainly rather than papered over: no question/discussion-only issue, no ambiguous issue, no spam example, no null-label example, no high-priority example. None of these are fabricatable honestly — design-plan.md's own philosophy (real operation over synthetic curation, entry 4) rules out inventing synthetic examples to fill them in.
+Five real gaps, stated plainly rather than papered over: no question/discussion-only issue, no ambiguous issue, no spam example, no null-label example, no high-priority example. None of these are fabricatable honestly — this project's own philosophy of preferring real operation over synthetic curation rules out inventing synthetic examples to fill them in.
 
 These gaps are expected to close as real operation continues (Phase 7) and the golden set grows via `scripts/export_golden_set.py`. Until they do, evaluation results should be read as "verified for the issue shapes seen so far," not "verified in general" - an honest scope statement, not a hedge.

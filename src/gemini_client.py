@@ -29,9 +29,10 @@ class GeminiResponseError(RuntimeError):
 
 
 # Kept as separate template files (src/templates/*-instructions.md.jinja),
-# not inline string constants - editing the wording of a rule (the kind
-# of change entry 90 made and reverted) is then a plain-text edit with no
-# Python diff noise, and the prompt reads the way it will actually be
+# not inline string constants - editing the wording of a rule (a change
+# that has previously been tried and reverted after it broke a passing
+# case) is then a plain-text edit with no Python diff noise, and the
+# prompt reads the way it will actually be
 # sent, not wrapped in a triple-quoted Python string. Loaded once here via
 # the same render_template mechanism as every other rendered document in
 # this project (src/rendering.py), not a second, parallel loading
@@ -51,7 +52,7 @@ _RECENT_EXAMPLES_HEADER = (
 
 _SIMILAR_EXAMPLES_HEADER = (
     "Similar past issues, retrieved by embedding similarity to this "
-    "issue (LOG.md entry 96) - similarity is a heuristic signal, not a "
+    "issue - similarity is a heuristic signal, not a "
     "guarantee of relevance, so weigh each one on its own merit rather "
     "than assuming every entry here is actually related:"
 )
@@ -116,8 +117,8 @@ class GeminiJudge:
         recent_examples (see src.db.get_recent_reviewed_judgments) are
         injected as few-shot context - real past corrections and
         confirmations, not model fine-tuning. similar_examples (see
-        src.duplicate_detection.find_similar_reviewed_examples, LOG.md
-        entry 96) are a second, distinct kind of context: past reviewed
+        src.duplicate_detection.find_similar_reviewed_examples) are a
+        second, distinct kind of context: past reviewed
         judgments retrieved by embedding similarity to *this* issue
         specifically, not recency - genuine retrieval-augmented
         generation, reusing the same embeddings built for duplicate

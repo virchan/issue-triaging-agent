@@ -1,11 +1,11 @@
 """Check embeddings-based duplicate detection against the same real,
 adjudicated scikit-learn issue pairs used in scripts/eval_duplicate_heuristic.py.
 
-The deterministic heuristic was ruled out by that script's real result
-(LOG.md entry 74) - this is the escalation path, checked the same
-rigorous way: does cosine similarity on gemini-embedding-001 embeddings
-actually separate the operator's real duplicate pairs from the real
-non-duplicate (false-positive-check) pairs?
+The deterministic heuristic was ruled out by that script's real result -
+this is the escalation path, checked the same rigorous way: does cosine
+similarity on gemini-embedding-001 embeddings actually separate the
+operator's real duplicate pairs from the real non-duplicate
+(false-positive-check) pairs?
 
 Requires GEMINI_API_KEY (real API calls, one embedding per distinct
 issue - 20 calls for the 10 pairs below, free tier).
@@ -28,7 +28,8 @@ OWNER = "scikit-learn"
 REPO = "scikit-learn"
 
 # Same real pairs as scripts/eval_duplicate_heuristic.py - transcribed
-# from duplicated-issues-example.md.
+# from the operator's own local, personally-adjudicated notes (kept
+# local, not part of this repo).
 PAIRS: list[tuple[int, int, bool]] = [
     (31593, 32150, True),
     (32961, 33002, True),

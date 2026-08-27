@@ -1,8 +1,9 @@
 """FastAPI service for issue-triaging-agent.
 
 Deployed as a separate Cloud Run service alongside the Cloud Run Job that
-runs the daily schedule (see open-questions.md item 7 for why this
-exists at all, rather than a bare batch job).
+runs the daily schedule - this service exists for the things a bare batch
+job can't offer: a `/health` endpoint Cloud Run can probe, and a manual
+`/trigger` endpoint for running the same daily cycle on demand.
 
 Run locally with:
     uv run uvicorn app:app --reload

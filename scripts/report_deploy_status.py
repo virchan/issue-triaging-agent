@@ -1,5 +1,5 @@
 """Post a Deploy workflow status report as an issue in issue-triaging-agent
-itself (the code repo, not the digests repo) - LOG.md entry 80.
+itself (the code repo, not the digests repo).
 
 Run from .github/workflows/deploy.yml with real values as arguments.
 Uses GitHub Actions' own automatic, repo-scoped GITHUB_TOKEN - no new

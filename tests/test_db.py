@@ -146,7 +146,7 @@ def test_set_possible_duplicate_can_clear_to_none(mocker: Any) -> None:
 def test_get_judged_issues_in_window_excludes_already_digested_judgments(
     mocker: Any,
 ) -> None:
-    """Regression test for LOG.md entry 93: a WIP digest left open for
+    """Regression test: a WIP digest left open for
     days widens window_start back to that digest's own creation date, so
     an issue already shown in an earlier digest could otherwise resurface
     again just because its creation timestamp still falls in the

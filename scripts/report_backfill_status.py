@@ -1,7 +1,7 @@
 """Post a backfill-trigger workflow status report as an issue in
 issue-triaging-agent itself (the code repo, not the digests repo) -
-LOG.md entry 80, written directly in response to the first real backfill
-run losing 65% of its work to rate limiting with no visible signal.
+written directly in response to a real backfill run losing 65% of its
+work to rate limiting with no visible signal.
 
 Run from .github/workflows/backfill-trigger.yml, with the real
 fetched/embedded/skipped/failed counts pulled from Cloud Logging by the

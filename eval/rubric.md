@@ -19,13 +19,13 @@ Every golden example is one of two kinds — **confirmed** (the operator reviewe
 
 ## Why "corrected + differs" isn't an automatic pass
 
-A correction is a free-text comment (e.g. `"#34648 should be labelled as \"array API\"."`), not a structured expected answer. If the new judgment stops reproducing the known-wrong original, that's genuine evidence something changed for the better — but there's no automated way to confirm the new judgment now satisfies what the operator actually meant, since we never parsed the correction into a structured target. Calling this a pass would be exactly the kind of unearned confidence this project's evaluation is supposed to avoid (see the `us-census-chat-agent` postmortem this project explicitly inherits from — correctness claims need to be honest, not optimistic).
+A correction is a free-text comment (e.g. `"#34648 should be labelled as \"array API\"."`), not a structured expected answer. If the new judgment stops reproducing the known-wrong original, that's genuine evidence something changed for the better — but there's no automated way to confirm the new judgment now satisfies what the operator actually meant, since we never parsed the correction into a structured target. Calling this a pass would be exactly the kind of unearned confidence this project's evaluation is designed to avoid — correctness claims need to be honest, not optimistic.
 
-**NEEDS_REVIEW** is the deliberate partial-credit outcome design-plan.md §8 calls for: it says "this got better, but a human still needs to look" rather than silently claiming success or bluntly claiming failure.
+**NEEDS_REVIEW** is a deliberate partial-credit outcome: it says "this got better, but a human still needs to look" rather than silently claiming success or bluntly claiming failure.
 
 ## What counts as a CI-failing regression
 
-Both REGRESSION cases fail CI (Step 24). NEEDS_REVIEW does not fail CI, but is reported — it's a real signal, just not an automatable pass/fail one.
+Both REGRESSION cases fail CI. NEEDS_REVIEW does not fail CI, but is reported — it's a real signal, just not an automatable pass/fail one.
 
 ## Known limitation
 

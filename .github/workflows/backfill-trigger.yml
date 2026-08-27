@@ -6,9 +6,9 @@ name: Trigger Backfill
 # not just deploying one) - no new credential or IAM grant.
 #
 # Waits for the Cloud Run Job execution to actually finish (deliberately
-# not fire-and-forget - see LOG.md entry 80): a trigger that only
-# confirms "I asked GCP to run this" can't answer whether it actually
-# succeeded, which is the entire point of this workflow existing.
+# not fire-and-forget): a trigger that only confirms "I asked GCP to run
+# this" can't answer whether it actually succeeded, which is the entire
+# point of this workflow existing.
 on:
   workflow_dispatch: {}
 
@@ -37,10 +37,10 @@ jobs:
             --region="${{ secrets.GCP_REGION }}" --wait
 
       # --wait above can block for well over an hour (the Cloud Run Job
-      # itself has a 1-hour task timeout plus a retry - see LOG.md entry
-      # 82/83) - long enough to outlast the WIF-issued access token's
-      # default 1-hour lifetime. Re-authenticating here means the steps
-      # below never run on a token that may have gone stale while waiting.
+      # itself has a 1-hour task timeout plus a retry) - long enough to
+      # outlast the WIF-issued access token's default 1-hour lifetime.
+      # Re-authenticating here means the steps below never run on a
+      # token that may have gone stale while waiting.
       - uses: google-github-actions/auth@v2
         if: always()
         with:

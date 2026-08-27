@@ -27,9 +27,9 @@ from src.pipeline import (
 
 # How far back a stored embedding stays useful as a duplicate-candidate -
 # matches scripts/backfill_issue_embeddings.py's own backfill horizon
-# (LOG.md entry 75: the operator's real adjudicated examples showed
-# duplicates come from scikit-learn's broader history, not just recently
-# judged issues - but "broader" still isn't "forever"). Applied as a
+# (the operator's real adjudicated examples showed duplicates come from
+# scikit-learn's broader history, not just recently judged issues - but
+# "broader" still isn't "forever"). Applied as a
 # rolling window, not a one-time cutoff, so storage stays bounded
 # indefinitely rather than growing forever as new issues get embedded
 # each day.
@@ -134,9 +134,9 @@ def run_daily_cycle(
     POST /trigger (the on-demand path), never from the scheduled Cloud
     Run Job - it controls whether the published digest also gets
     MANUALLY_TRIGGERED_LABEL alongside DIGEST_LABEL (no extra label for
-    the normal scheduled path - LOG.md entry 98: "triggered-by:agent"
-    and "testing" were both dropped once the project moved past needing
-    to flag every digest as in-progress/experimental).
+    the normal scheduled path - "triggered-by:agent" and "testing" were
+    both dropped once the project moved past needing to flag every
+    digest as in-progress/experimental).
 
     Returns with digest=None, published=None (no GitHub issue created,
     no new digests row) when a same-day WIP digest already exists and

@@ -60,7 +60,7 @@ def _embed_issue(
 ) -> list[float] | None:
     """Embed issue (reusing a stored embedding if one already exists -
     e.g. from the backfill, or a prior judgment). Computed *before*
-    judging now (LOG.md entry 96) - the same embedding is used both to
+    judging - the same embedding is used both to
     retrieve semantically similar past judgments as RAG context for
     judge() and, after judging, to find this issue's own
     possible-duplicate suggestion - one embed call serves both, not two.
@@ -89,8 +89,8 @@ def _record_possible_duplicate(
     judgment_id: int,
 ) -> None:
     """Find the most similar other issue in the pool and record the
-    result on this judgment - a ranked suggestion, not a classification
-    (LOG.md entries 73-76), always recording the best match found above
+    result on this judgment - a ranked suggestion, not a classification,
+    always recording the best match found above
     a loose sanity floor, or explicitly "none found" rather than leaving
     the columns unset and ambiguous."""
 
@@ -110,8 +110,8 @@ def _find_similar_examples(
     embedding: list[float],
     issue: GitHubIssue,
 ) -> list[ReviewedJudgment]:
-    """Retrieval-augmented few-shot context for judge() (LOG.md entry
-    96): past reviewed judgments retrieved by embedding similarity to
+    """Retrieval-augmented few-shot context for judge(): past reviewed
+    judgments retrieved by embedding similarity to
     this specific issue, not recency - a genuinely different signal
     from get_recent_reviewed_judgments, reusing the same embeddings
     built for duplicate detection."""
@@ -146,7 +146,7 @@ def _judge_and_persist(
     computed or reused from a prior run. Reusing an existing judgment
     rather than re-calling Gemini for it is deliberate.
 
-    Each issue is embedded *before* judging now (LOG.md entry 96), not
+    Each issue is embedded *before* judging now, not
     after - the embedding is used to retrieve similar_examples for
     judge()'s RAG context, then reused afterward for the possible-
     duplicate lookup, one embed call serving both. An embedding failure

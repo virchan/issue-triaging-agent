@@ -316,7 +316,7 @@ def test_run_daily_cycle_does_not_trigger_backlog_without_a_label(
 def test_run_daily_cycle_uses_only_the_digest_label_by_default(
     mocker: Any, clients_and_connection: tuple[Any, Any, Any, Any, Any]
 ) -> None:
-    """LOG.md entry 98: "triggered-by:agent" and "testing" were both
+    """ "triggered-by:agent" and "testing" were both
     dropped once the project moved past needing to flag every digest as
     in-progress/experimental - the normal scheduled path now gets only
     the base digest label."""

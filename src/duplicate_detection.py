@@ -1,19 +1,19 @@
 """Duplicate-issue detection.
 
-similarity_score is the original deterministic heuristic (LOG.md entry
-73) - real evaluation against adjudicated pairs (entry 74) ruled it out,
-kept here since scripts/eval_duplicate_heuristic.py still references it
-as the comparison baseline, not because it's used in production.
+similarity_score is the original deterministic heuristic - real
+evaluation against adjudicated pairs ruled it out, kept here since
+scripts/eval_duplicate_heuristic.py still references it as the
+comparison baseline, not because it's used in production.
 
-find_possible_duplicate is the mechanism actually used (entry 76):
+find_possible_duplicate is the mechanism actually used:
 gemini-embedding-001 similarity, real-evaluated to have no threshold
 that cleanly separates duplicate from non-duplicate pairs - so this
 ranks and surfaces the single most similar candidate as a suggestion,
 never a duplicate/not-duplicate classification.
 
-find_similar_reviewed_examples (entry 96) reuses the same embeddings
-and the same loose floor for a different purpose: retrieval-augmented
-few-shot context in judge()'s prompt, not a duplicate suggestion.
+find_similar_reviewed_examples reuses the same embeddings and the same
+loose floor for a different purpose: retrieval-augmented few-shot
+context in judge()'s prompt, not a duplicate suggestion.
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ from src.embeddings import cosine_similarity
 # Below this, a "most similar match" isn't worth surfacing at all - a
 # loose sanity floor (guards against an empty/irrelevant candidate pool,
 # e.g. early in the backfill), not a tuned classification boundary. Real
-# evaluation (entry 76) found even genuinely unrelated real pairs scored
+# evaluation found even genuinely unrelated real pairs scored
 # 0.818-0.918, and a real duplicate scored as low as 0.799 - there's no
 # threshold in that range that would improve on just always surfacing
 # the top match, so this is set well below all of it deliberately.
@@ -70,7 +70,7 @@ def find_possible_duplicate(
     src.pipeline._judge_and_persist). A ranked suggestion, not a
     classification: this always returns the best match found above the
     loose sanity floor, never attempts a duplicate/not-duplicate
-    verdict - real evaluation (LOG.md entry 76) found no threshold that
+    verdict - real evaluation found no threshold that
     would make that verdict reliable.
     """
 
@@ -86,11 +86,10 @@ def find_possible_duplicate(
 
 
 # How many semantically similar past reviewed judgments to surface as
-# retrieval-augmented few-shot context in judge()'s prompt (LOG.md entry
-# 96) - kept small: the same real evaluation that ruled out a clean
-# duplicate/non-duplicate threshold (entries 74-76) means embedding
-# similarity is a noisy signal here too, not something to lean on for a
-# large context dump.
+# retrieval-augmented few-shot context in judge()'s prompt - kept small:
+# the same real evaluation that ruled out a clean duplicate/non-duplicate
+# threshold means embedding similarity is a noisy signal here too, not
+# something to lean on for a large context dump.
 SIMILAR_EXAMPLES_LIMIT = 3
 
 
@@ -109,8 +108,7 @@ def find_similar_reviewed_examples(
     the same loose floor deliberately: this is retrieval-augmented
     context for the model to weigh, not a precision-guaranteed lookup -
     an occasionally irrelevant example can slip through here, the same
-    real caveat as an occasional wrong duplicate suggestion (LOG.md
-    entry 85).
+    real caveat as an occasional wrong duplicate suggestion.
     """
 
     scored = [
