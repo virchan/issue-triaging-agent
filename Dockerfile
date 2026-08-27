@@ -1,7 +1,7 @@
 # Single image, two entrypoints - the Cloud Run Job (scripts/run_daily_job.py)
 # and the Cloud Run service (app.py, via uvicorn) both run from this image,
-# with the actual command chosen per Cloud Run resource at deploy time (see
-# LOG.md). Defaults to the service here since a CMD is required either way.
+# with the actual command chosen per Cloud Run resource at deploy time.
+# Defaults to the service here since a CMD is required either way.
 
 FROM python:3.12-slim
 
@@ -20,7 +20,7 @@ COPY app.py ./
 COPY src/ ./src/
 # Whole directory, not individual files: listing scripts by name here
 # once caused a real production failure - scripts/backfill_issue_embeddings.py
-# (LOG.md entry 78) was never copied in, so its Cloud Run Job failed with
+# was never copied in, so its Cloud Run Job failed with
 # "No module named scripts.backfill_issue_embeddings" the first time it
 # ran. Copying the directory wholesale means a new production script
 # never needs a Dockerfile change to actually ship - the handful of
