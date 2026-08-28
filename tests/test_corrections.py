@@ -218,6 +218,56 @@ def test_extract_corrections_by_issue_real_world_alias_hash_correction() -> None
     assert "not related to" in result[34820]
 
 
+def test_extract_corrections_by_issue_prefers_a_known_issue_when_resolver_given() -> (
+    None
+):
+    """The exact real correction from closing digest #24 on 2026-08-28:
+    both lines name the real target issue *after* a comparison reference
+    to an unjudged possibly-related issue - picking the first reference
+    found positionally misattributed both lines to the comparison
+    issue. With a resolver reflecting which numbers have real judgments,
+    the target (not the comparison reference) wins regardless of order."""
+
+    line1 = (
+        "1. Although it is a PR, not an Issue. The suggestion of "
+        "`scikit-learn#32589` is helpful! It is related to `scikit-learn#34822`."
+    )
+    line2 = "2. I don't think `scikit-learn#30492` is related to `scikit-learn#34825`."
+
+    known_issues = {34822, 34825}
+    result = extract_corrections_by_issue(
+        f"{line1}\n{line2}", is_known_issue=lambda number: number in known_issues
+    )
+
+    assert set(result) == {34822, 34825}
+    assert "helpful" in result[34822]
+    assert "don't think" in result[34825]
+
+
+def test_extract_corrections_by_issue_falls_back_to_first_reference_without_a_resolver() -> (
+    None
+):
+    """Without a resolver (the default), a line's first candidate wins -
+    the original, simpler behavior, unaffected for callers that don't
+    need disambiguation."""
+
+    body = "The suggestion of `scikit-learn#32589` is helpful, related to `scikit-learn#34822`."
+
+    assert extract_corrections_by_issue(body) == {32589: body}
+
+
+def test_extract_corrections_by_issue_falls_back_when_no_candidate_is_known() -> None:
+    """A resolver that confirms none of a line's candidates still falls
+    back to the first one found, rather than dropping the line - same
+    "unmatched reference" reporting as today, just after checking."""
+
+    body = "`scikit-learn#111` is related to `scikit-learn#222`."
+
+    result = extract_corrections_by_issue(body, is_known_issue=lambda _: False)
+
+    assert result == {111: body}
+
+
 def test_format_acknowledgment_with_corrections() -> None:
     text = format_acknowledgment(
         CaptureResult(issue_still_open=False, already_reviewed=False, captured=2)
@@ -435,6 +485,45 @@ def test_capture_corrections_reports_a_reference_that_matches_no_judgment(
     assert "`scikit-learn/scikit-learn#99999`" in ack
     assert "didn't match any issue this agent has judged" in ack
     mark_reviewed.assert_called_once_with(connection, 1)
+
+
+def test_capture_corrections_attributes_to_the_known_issue_not_the_comparison(
+    mocker: Any, shadow_client: Any, gemini_judge: Any, connection: Any
+) -> None:
+    """End-to-end version of the real digest #24 incident: a comment
+    names the real target issue *after* a comparison reference to an
+    unjudged possibly-related issue. capture_corrections must attribute
+    to the known judgment (34822), not the comparison reference (32589)
+    that happens to appear first in the sentence."""
+
+    mocker.patch("src.corrections.is_digest_reviewed", return_value=False)
+    shadow_client.get_issue_state.return_value = "closed"
+    comment_text = (
+        "The suggestion of `scikit-learn#32589` is helpful! It is related "
+        "to `scikit-learn#34822`."
+    )
+    shadow_client.fetch_issue_comments.return_value = [_comment(1, comment_text)]
+    mocker.patch(
+        "src.corrections.get_judgment_id_for_issue_number",
+        side_effect=lambda conn, number: 501 if number == 34822 else None,
+    )
+    mocker.patch(
+        "src.corrections.get_authoritative_correction_digest", return_value=None
+    )
+    mocker.patch("src.corrections.mark_corrections_superseded")
+    mocker.patch("src.corrections.save_correction", return_value=999)
+    mocker.patch(
+        "src.corrections.get_rejudge_context",
+        return_value=RejudgeContext(title="t", body="b", judgment=_judgment()),
+    )
+    mocker.patch("src.corrections.update_judgment")
+    mocker.patch("src.corrections.set_correction_changed_fields")
+    mocker.patch("src.corrections.mark_digest_reviewed")
+
+    result = _run(mocker, shadow_client, gemini_judge, connection)
+
+    assert result.unmatched_references == []
+    assert result.applied == [AppliedCorrection(34822, comment_text, new_label="Bug")]
 
 
 def test_capture_corrections_captures_and_rejudges_a_new_correction(

@@ -3,6 +3,7 @@ from __future__ import annotations
 import datetime as dt
 import logging
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -107,20 +108,35 @@ def _strip_markdown_link_urls(line: str) -> str:
     return _MARKDOWN_LINK_PATTERN.sub(r"\1", line)
 
 
-def _match_issue_reference(line: str) -> int | None:
-    """Try each pattern in _REFERENCE_PATTERNS, in order, returning the
-    first match's github_number - None if the line matches none of them.
+def _find_all_issue_references(line: str) -> list[int]:
+    """Find every issue number any pattern matches in the line, in the
+    order they appear, deduplicated on first occurrence.
+
+    A real correction once named two valid references in the same line -
+    the issue actually being corrected, and a second issue mentioned only
+    for comparison ("I don't think `scikit-learn#30492` is related to
+    `scikit-learn#34825`") - and picking just the first match found the
+    comparison reference, not the target, whenever the comparison
+    happened to come first in the sentence. Returning every candidate
+    lets the caller (which knows which numbers have real judgments)
+    disambiguate, rather than guessing positionally.
     """
 
     line = _strip_markdown_link_urls(line)
+    numbers: list[int] = []
     for pattern in _REFERENCE_PATTERNS:
-        match = pattern.search(line)
-        if match is not None:
-            return int(match.group(1))
-    return None
+        for match in pattern.finditer(line):
+            number = int(match.group(1))
+            if number not in numbers:
+                numbers.append(number)
+    return numbers
 
 
-def extract_corrections_by_issue(comment_body: str) -> dict[int, str]:
+def extract_corrections_by_issue(
+    comment_body: str,
+    *,
+    is_known_issue: Callable[[int], bool] | None = None,
+) -> dict[int, str]:
     """Split a comment into lines and extract every recognizable issue
     reference (see _REFERENCE_PATTERNS), one correction per referenced
     issue.
@@ -139,13 +155,26 @@ def extract_corrections_by_issue(comment_body: str) -> dict[int, str]:
     correction - this includes a line naming an issue in a *different*
     repo (e.g. "the real duplicate is uxlfoundation/scikit-learn-intelex
     #3377"), since there's no judgment here to attribute it to.
+
+    `is_known_issue`, when given, resolves *which* of a line's several
+    candidate references is the real correction target: the first
+    candidate it confirms, not just the first one found positionally.
+    Without it (the default), a line's first candidate wins, matching
+    this function's original, simpler behavior - existing callers and
+    tests that don't need disambiguation are unaffected.
     """
 
     corrections: dict[int, list[str]] = {}
     for line in comment_body.splitlines():
-        github_number = _match_issue_reference(line)
-        if github_number is None:
+        candidates = _find_all_issue_references(line)
+        if not candidates:
             continue
+        github_number = candidates[0]
+        if is_known_issue is not None:
+            for candidate in candidates:
+                if is_known_issue(candidate):
+                    github_number = candidate
+                    break
         corrections.setdefault(github_number, []).append(line.strip())
 
     return {number: "\n".join(lines) for number, lines in corrections.items()}
@@ -317,7 +346,12 @@ def capture_corrections(
     rejudge_failures: list[tuple[int, str]] = []
 
     for comment in comments:
-        corrections_by_issue = extract_corrections_by_issue(comment.body)
+        corrections_by_issue = extract_corrections_by_issue(
+            comment.body,
+            is_known_issue=lambda number: (
+                get_judgment_id_for_issue_number(connection, number) is not None
+            ),
+        )
         if not corrections_by_issue:
             unattributed.append(comment.id)
             continue
