@@ -963,6 +963,12 @@ class GoldenExample:
     judgment: IssueJudgment
     correction_text: str | None
     digest_date: dt.date
+    embedding: list[float] | None = None
+    """The issue's stored embedding, if one exists (see issue_embeddings) -
+    None for a golden example judged before an embedding was ever computed
+    for it. Lets the golden-set eval build real recent_examples/
+    similar_examples context (see tests/test_golden_set.py) from a static
+    snapshot rather than a live DB query, which CI doesn't have access to."""
     """Pacific calendar date the digest's window ended on - a display
     label derived from window_end, not part of the digest's identity."""
 
@@ -983,11 +989,13 @@ def get_all_reviewed_judgments(
             SELECT i.github_number, i.title, i.body, j.suggested_label,
                    j.is_spam, j.summary, j.priority, j.rationale,
                    j.confidence, c.comment_body,
-                   (d.window_end AT TIME ZONE 'America/Los_Angeles')::date
+                   (d.window_end AT TIME ZONE 'America/Los_Angeles')::date,
+                   e.embedding
             FROM judgments j
             JOIN issues i ON i.id = j.issue_id
             JOIN digests d ON d.id = j.digest_id
             LEFT JOIN corrections c ON c.judgment_id = j.id
+            LEFT JOIN issue_embeddings e ON e.issue_id = i.id
             WHERE d.state = 'reviewed'
             ORDER BY d.window_end ASC, j.id ASC
             """
@@ -1009,6 +1017,7 @@ def get_all_reviewed_judgments(
             ),
             correction_text=row[9],
             digest_date=row[10],
+            embedding=list(row[11]) if row[11] is not None else None,
         )
         for row in rows
     ]

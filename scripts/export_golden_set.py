@@ -3,7 +3,11 @@
 Overwrites eval/golden_set.json with the complete current state - the
 database is the source of truth, this file is a versioned, CI-usable
 snapshot of it: CI runs credential-free, with no database access, so the
-regression suite needs a static file rather than a live query.
+regression suite needs a static file rather than a live query. Each
+example's stored embedding (null if it was never embedded) is included
+too, so the regression suite can build real recent_examples and
+similar_examples few-shot context from other examples in the same
+snapshot, rather than testing judge() bare.
 
 Run with:
     uv run python -m scripts.export_golden_set
@@ -29,6 +33,7 @@ def _serialize(example: GoldenExample) -> dict:
         "judgment": example.judgment.model_dump(),
         "correction_text": example.correction_text,
         "digest_date": example.digest_date.isoformat(),
+        "embedding": example.embedding,
     }
 
 

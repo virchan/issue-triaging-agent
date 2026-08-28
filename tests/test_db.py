@@ -613,17 +613,35 @@ def test_get_all_reviewed_judgments_maps_rows_unbounded(mocker: Any) -> None:
             0.95,
             "#34648 should be labelled as array API.",
             dt.date(2026, 8, 4),
+            [0.1, 0.2, 0.3],
+        ),
+        (
+            34649,
+            "Title B",
+            "Body B",
+            "Enhancement",
+            False,
+            "summary",
+            "low",
+            "rationale",
+            0.9,
+            None,
+            dt.date(2026, 8, 5),
+            None,
         ),
     ]
 
     results = get_all_reviewed_judgments(connection)
 
-    assert len(results) == 1
+    assert len(results) == 2
     assert results[0].github_number == 34648
     assert results[0].digest_date == dt.date(2026, 8, 4)
     assert results[0].correction_text == "#34648 should be labelled as array API."
+    assert results[0].embedding == [0.1, 0.2, 0.3]
+    assert results[1].embedding is None
     sql = cursor.execute.call_args.args[0]
     assert "LIMIT" not in sql
+    assert "issue_embeddings" in sql
 
 
 def test_get_judged_issues_by_numbers_returns_empty_without_querying(

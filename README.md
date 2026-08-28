@@ -81,15 +81,12 @@ See:
 * `eval/rubric.md` for the comparison rules
 * `eval/failure_mode_matrix.md` for coverage of the current evaluation set
 
-The golden set contains real, human-reviewed judgements. CI replays those cases against the live model and classifies each result as:
+The golden set contains real, human-reviewed judgements - including corrected ones, since applying a correction always re-runs judgment and overwrites the stored result with the revised, human-confirmed answer. CI replays those cases against the live model and classifies each result as:
 
 * `PASS`
 * `REGRESSION`
-* `NEEDS_REVIEW`
 
 A `REGRESSION` fails CI.
-
-`NEEDS_REVIEW` is reported without automatically failing the run. Some human corrections are free-form and do not provide a sufficiently structured target for an automated test to determine whether the new output fully satisfies the correction.
 
 The failure-mode matrix records which cases are currently represented in the golden set and which are still missing. For example, the current set does not yet contain a real spam case or a null-label case.
 
