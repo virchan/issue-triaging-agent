@@ -106,11 +106,12 @@ The system runs daily and has been maintained based on failures observed during 
 * embedding-service rate limiting that caused approximately 65% of one backfill run to be lost
 * a Cloud Run task timeout
 * a Workload Identity Federation token expiring during a workflow
-* two correction-parsing bugs found through normal review
+* four correction-parsing bugs found through normal review, each a different real-world phrasing defeating the reference matcher
 * a stale-cache bug that caused previously reviewed issues to appear again
+* a Cloud Scheduler duplicate dispatch that produced two digest issues for the same day
 </details>
 
-Each issue was diagnosed from logs, reproduced where possible, fixed, and verified against the deployed system. Regression tests were added for the corresponding failures.
+Each issue was diagnosed from logs, reproduced where possible, fixed, and verified against the deployed system. Regression tests were added for the corresponding failures. The full symptom/diagnosis/fix procedure for each recurring failure mode is documented in [`docs/runbook.md`](docs/runbook.md).
 
 <details>
 <summary>Examples of Operational Visibility (Click to Expand)</summary>
