@@ -48,7 +48,15 @@ CREATE TABLE IF NOT EXISTS judgments (
     id                              SERIAL PRIMARY KEY,
     issue_id                        INTEGER NOT NULL UNIQUE REFERENCES issues (id),
     digest_id                       INTEGER REFERENCES digests (id),
-    suggested_label                 TEXT,
+    -- A native array, not a join table: nothing here ever queries "every
+    -- judgment with label X" independently of fetching the full judgment,
+    -- so a join table would add real complexity (extra JOIN, ordering,
+    -- delete-then-insert on update) for no actual benefit. Empty array
+    -- means "no clear label," replacing the old NULL sentinel. A single
+    -- TEXT column had no way to represent a genuinely multi-label
+    -- judgment, which real corrections often call for (e.g. "should also
+    -- be labelled X" - additive, not a replacement).
+    suggested_labels                TEXT[] NOT NULL DEFAULT '{}',
     is_spam                         BOOLEAN NOT NULL DEFAULT FALSE,
     summary                         TEXT NOT NULL,
     priority                        TEXT NOT NULL CHECK (priority IN ('low', 'medium', 'high')),
@@ -119,7 +127,7 @@ CREATE TABLE IF NOT EXISTS corrections (
     -- NULL means no live re-judge happened for this correction (capped,
     -- failed, or superseded) - "we don't know what would have changed".
     -- An empty array means a re-judge did happen but none of the tracked
-    -- fields (suggested_label, is_spam, priority) differed - "we know,
+    -- fields (suggested_labels, is_spam, priority) differed - "we know,
     -- and nothing changed". Set after the fact (see update_judgment) -
     -- absent at insert time since the outcome isn't known yet.
     changed_fields      TEXT[],

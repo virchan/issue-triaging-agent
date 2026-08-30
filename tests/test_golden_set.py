@@ -156,7 +156,7 @@ def test_golden_example_does_not_regress(
         pytest.skip(f"Gemini unavailable for #{example['github_number']}: {error}")
 
     outcome = evaluate_judgment(
-        golden_label=example["judgment"]["suggested_label"],
+        golden_labels=example["judgment"]["suggested_labels"],
         golden_is_spam=example["judgment"]["is_spam"],
         golden_priority=example["judgment"]["priority"],
         new_judgment=new_judgment,
@@ -166,9 +166,9 @@ def test_golden_example_does_not_regress(
 
     assert outcome != EvalOutcome.REGRESSION, (
         f"Regression on #{example['github_number']}: new judgment gave "
-        f"label={new_judgment.suggested_label!r}, "
+        f"labels={new_judgment.suggested_labels!r}, "
         f"is_spam={new_judgment.is_spam}, priority={new_judgment.priority!r} "
-        f"vs. golden label={example['judgment']['suggested_label']!r}, "
+        f"vs. golden labels={example['judgment']['suggested_labels']!r}, "
         f"is_spam={example['judgment']['is_spam']}, "
         f"priority={example['judgment']['priority']!r}"
     )

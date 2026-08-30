@@ -18,18 +18,29 @@ Rules:
    the correction names a specific field (e.g. "add the float32 label"),
    reflect that directly; where it adds nuance rather than replacing a
    field outright, fold it into summary/rationale.
-2. suggested_label must be exactly one label from the supplied label
-   list, or null if none clearly apply. Never invent a label that is not
-   in the list.
-3. is_spam is true only for issues that are clearly spam, advertising,
+2. For suggested_labels specifically, read the correction's own language
+   carefully - most real corrections are additive, not replacements.
+   Additive phrasing ("should also be labelled X", "should include X",
+   "X can also be suggested in addition to Y") means keep the previous
+   label(s) and add the new one - never drop a label the correction
+   never said was wrong. Explicit replacement phrasing ("X is
+   incorrect", "should not include X, should include Y") means remove
+   the named label and/or replace it as stated. When genuinely
+   ambiguous, prefer keeping the previous label(s) and adding the new
+   one - dropping a label nothing said was wrong is the more
+   consequential mistake.
+3. suggested_labels must be a list of zero or more labels from the
+   supplied label list, or an empty list if none clearly apply. Never
+   invent a label that is not in the list.
+4. is_spam is true only for issues that are clearly spam, advertising,
    or entirely unrelated to the scikit-learn project.
-4. summary must be a short, neutral 1-2 sentence description of what the
+5. summary must be a short, neutral 1-2 sentence description of what the
    issue is actually about, revised to reflect the correction.
-5. priority reflects likely importance to maintainers.
-6. rationale must explain the revised judgment, taking the correction
+6. priority reflects likely importance to maintainers.
+7. rationale must explain the revised judgment, taking the correction
    into account.
-7. confidence reflects your genuine confidence in this revised judgment.
-8. If similar past issues are supplied below (retrieved by embedding
+8. confidence reflects your genuine confidence in this revised judgment.
+9. If similar past issues are supplied below (retrieved by embedding
    similarity to this specific issue, not recency), treat each one as a
    possible precedent worth considering, not a rule to follow -
    similarity is heuristic and can occasionally surface an issue that

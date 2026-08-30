@@ -97,7 +97,7 @@ def test_get_reviewed_judgments_with_embeddings_maps_rows(mocker: Any) -> None:
             [0.1, 0.2],
             "Issue title",
             "Issue body",
-            "Bug",
+            ["Bug"],
             False,
             "summary",
             "medium",
@@ -114,7 +114,7 @@ def test_get_reviewed_judgments_with_embeddings_maps_rows(mocker: Any) -> None:
     assert github_number == 34649
     assert embedding == [0.1, 0.2]
     assert reviewed.issue_title == "Issue title"
-    assert reviewed.judgment.suggested_label == "Bug"
+    assert reviewed.judgment.suggested_labels == ["Bug"]
     assert reviewed.correction_text == "should be Documentation"
     assert reviewed.similarity is None
 
@@ -438,7 +438,7 @@ def test_get_rejudge_context_maps_row(mocker: Any) -> None:
     cursor.fetchone.return_value = (
         "Issue title",
         "Issue body",
-        "Bug",
+        ["Bug"],
         False,
         "summary",
         "medium",
@@ -452,7 +452,7 @@ def test_get_rejudge_context_maps_row(mocker: Any) -> None:
     assert result.title == "Issue title"
     assert result.body == "Issue body"
     assert result.judgment == IssueJudgment(
-        suggested_label="Bug",
+        suggested_labels=["Bug"],
         is_spam=False,
         summary="summary",
         priority="medium",
@@ -471,7 +471,7 @@ def test_get_rejudge_context_returns_none_when_not_found(mocker: Any) -> None:
 def test_update_judgment_overwrites_in_place(mocker: Any) -> None:
     connection, cursor = _mock_connection(mocker)
     judgment = IssueJudgment(
-        suggested_label="module:decomposition",
+        suggested_labels=["module:decomposition"],
         is_spam=False,
         summary="revised summary",
         priority="medium",
@@ -484,7 +484,7 @@ def test_update_judgment_overwrites_in_place(mocker: Any) -> None:
     sql, params = cursor.execute.call_args.args
     assert "UPDATE judgments" in sql
     assert params == (
-        "module:decomposition",
+        ["module:decomposition"],
         False,
         "revised summary",
         "medium",
@@ -499,23 +499,23 @@ def test_update_judgment_overwrites_in_place(mocker: Any) -> None:
 def test_set_correction_changed_fields_updates_by_id(mocker: Any) -> None:
     connection, cursor = _mock_connection(mocker)
 
-    set_correction_changed_fields(connection, 42, ["suggested_label", "priority"])
+    set_correction_changed_fields(connection, 42, ["suggested_labels", "priority"])
 
     sql, params = cursor.execute.call_args.args
     assert "UPDATE corrections" in sql
     assert "changed_fields" in sql
-    assert params == (["suggested_label", "priority"], 42)
+    assert params == (["suggested_labels", "priority"], 42)
     # Deliberately does not commit - same logical event as update_judgment.
     connection.commit.assert_not_called()
 
 
 def test_get_correction_field_counts_maps_rows(mocker: Any) -> None:
     connection, cursor = _mock_connection(mocker)
-    cursor.fetchall.return_value = [("suggested_label", 3), ("priority", 1)]
+    cursor.fetchall.return_value = [("suggested_labels", 3), ("priority", 1)]
 
     result = get_correction_field_counts(connection)
 
-    assert result == {"suggested_label": 3, "priority": 1}
+    assert result == {"suggested_labels": 3, "priority": 1}
     sql, params = cursor.execute.call_args.args
     assert "changed_fields IS NOT NULL" in sql
     assert "unnest(changed_fields)" in sql
@@ -542,7 +542,7 @@ def test_get_recent_reviewed_judgments_maps_rows_and_passes_limit(
         (
             "Title A",
             "Body A",
-            "Bug",
+            ["Bug"],
             False,
             "summary A",
             "high",
@@ -550,7 +550,7 @@ def test_get_recent_reviewed_judgments_maps_rows_and_passes_limit(
             0.9,
             "Fix the label",
         ),
-        ("Title B", None, None, False, "summary B", "low", "rationale B", 0.5, None),
+        ("Title B", None, [], False, "summary B", "low", "rationale B", 0.5, None),
     ]
 
     results = get_recent_reviewed_judgments(connection, limit=5)
@@ -558,9 +558,9 @@ def test_get_recent_reviewed_judgments_maps_rows_and_passes_limit(
     assert len(results) == 2
     assert results[0].issue_title == "Title A"
     assert results[0].correction_text == "Fix the label"
-    assert results[0].judgment.suggested_label == "Bug"
+    assert results[0].judgment.suggested_labels == ["Bug"]
     assert results[1].correction_text is None
-    assert results[1].judgment.suggested_label is None
+    assert results[1].judgment.suggested_labels == []
 
     sql, params = cursor.execute.call_args.args
     assert "state = 'reviewed'" in sql
@@ -669,7 +669,7 @@ def test_get_judged_issues_by_numbers_maps_rows(mocker: Any) -> None:
             "https://github.com/scikit-learn/scikit-learn/issues/34648",
             "scikit-learn",
             "scikit-learn",
-            "Documentation",
+            ["Documentation"],
             False,
             "summary",
             "low",
@@ -686,7 +686,7 @@ def test_get_judged_issues_by_numbers_maps_rows(mocker: Any) -> None:
 
     assert len(result) == 1
     assert result[0].github_number == 34648
-    assert result[0].judgment.suggested_label == "Documentation"
+    assert result[0].judgment.suggested_labels == ["Documentation"]
     sql, params = cursor.execute.call_args.args
     assert "i.github_number = ANY(%s)" in sql
     assert params == ("scikit-learn", "scikit-learn", [34648])

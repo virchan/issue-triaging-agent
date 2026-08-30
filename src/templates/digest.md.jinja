@@ -5,7 +5,7 @@
 {% for issue in group.issues %}
 ### [<code>{{ issue.reference_text }}</code>]({{ issue.redirect_url }}) : {{ issue.title }}{{ issue.spam_flag }}
 
-- **Suggested label:** {{ issue.suggested_label or "(none)" }}
+- **Suggested label(s):** {{ issue.suggested_labels|join(", ") if issue.suggested_labels else "(none)" }}
 - **Confidence:** {{ "%.2f"|format(issue.confidence) }}
 - **Contains a code snippet:** {{ "Yes" if issue.has_code_block else "No" }}
 {% if issue.possible_duplicate %}

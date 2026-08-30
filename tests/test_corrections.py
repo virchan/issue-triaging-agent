@@ -32,7 +32,7 @@ def _comment(comment_id: int, body: str) -> GitHubComment:
 
 def _judgment(**overrides: Any) -> IssueJudgment:
     defaults = {
-        "suggested_label": "Bug",
+        "suggested_labels": ["Bug"],
         "is_spam": False,
         "summary": "s",
         "priority": "medium",
@@ -291,9 +291,13 @@ def test_format_acknowledgment_lists_applied_corrections() -> None:
             captured=2,
             applied=[
                 AppliedCorrection(
-                    34436, "should include Numerical Stability", "Numerical Stability"
+                    github_number=34436,
+                    correction_text="should include Numerical Stability",
+                    added_labels=["Numerical Stability"],
+                    removed_labels=[],
+                    resulting_labels=["module:cluster", "Numerical Stability"],
                 ),
-                AppliedCorrection(34618, "line one\nline two", new_label=None),
+                AppliedCorrection(34618, "line one\nline two"),
             ],
         )
     )
@@ -301,16 +305,19 @@ def test_format_acknowledgment_lists_applied_corrections() -> None:
     assert "Corrections recorded (2)" in text
     assert "`scikit-learn/scikit-learn#34436`" in text
     assert "should include Numerical Stability" in text
-    assert "→ label updated to **Numerical Stability**" in text
+    assert (
+        "→ Numerical Stability added (now: module:cluster, Numerical Stability)" in text
+    )
     assert "`scikit-learn/scikit-learn#34618`" in text
     assert "line one\nline two" in text
     assert "</details>" in text
     # Entries must be separated by a blank line (a divider, here), not run
     # together in one paragraph - GitHub's renderer needs it to tell them
-    # apart as distinct blocks inside the collapsed section.
+    # apart as distinct blocks inside the collapsed section. #34618's entry
+    # has no label line at all - no live re-judge ran for it.
     assert (
-        "**Numerical Stability**\n\n---\n\n**`scikit-learn/scikit-learn#34618`**"
-        in text
+        "(now: module:cluster, Numerical Stability)\n\n---\n\n"
+        "**`scikit-learn/scikit-learn#34618`**" in text
     )
 
 
@@ -523,7 +530,9 @@ def test_capture_corrections_attributes_to_the_known_issue_not_the_comparison(
     result = _run(mocker, shadow_client, gemini_judge, connection)
 
     assert result.unmatched_references == []
-    assert result.applied == [AppliedCorrection(34822, comment_text, new_label="Bug")]
+    assert result.applied == [
+        AppliedCorrection(34822, comment_text, resulting_labels=["Bug"])
+    ]
 
 
 def test_capture_corrections_captures_and_rejudges_a_new_correction(
@@ -566,7 +575,7 @@ def test_capture_corrections_captures_and_rejudges_a_new_correction(
             34649,
             "`scikit-learn/scikit-learn/34649` is not about linear model, "
             "it's about SVC",
-            new_label="Bug",
+            resulting_labels=["Bug"],
         )
     ]
     assert result.unattributed_comment_ids == [2]
@@ -615,11 +624,13 @@ def test_capture_corrections_records_which_tracked_fields_actually_changed(
         return_value=RejudgeContext(
             title="t",
             body="b",
-            judgment=_judgment(suggested_label="Bug", is_spam=False, priority="medium"),
+            judgment=_judgment(
+                suggested_labels=["Bug"], is_spam=False, priority="medium"
+            ),
         ),
     )
     gemini_judge.judge_with_correction.return_value = _judgment(
-        suggested_label="module:decomposition", is_spam=False, priority="high"
+        suggested_labels=["module:decomposition"], is_spam=False, priority="high"
     )
     mocker.patch("src.corrections.update_judgment")
     set_changed_fields = mocker.patch("src.corrections.set_correction_changed_fields")
@@ -628,7 +639,7 @@ def test_capture_corrections_records_which_tracked_fields_actually_changed(
     _run(mocker, shadow_client, gemini_judge, connection)
 
     set_changed_fields.assert_called_once_with(
-        connection, 999, ["suggested_label", "priority"]
+        connection, 999, ["suggested_labels", "priority"]
     )
 
 
@@ -671,7 +682,7 @@ def test_capture_corrections_produces_one_correction_per_referenced_issue(
 
     assert result.captured == 2
     assert {a.github_number for a in result.applied} == {34436, 34618}
-    assert all(a.new_label == "Bug" for a in result.applied)
+    assert all(a.resulting_labels == ["Bug"] for a in result.applied)
     assert result.unattributed_comment_ids == []
     judgment_ids = {call.args[1] for call in save_correction.call_args_list}
     assert judgment_ids == {501, 502}
@@ -784,10 +795,12 @@ def test_capture_corrections_respects_the_rejudge_cap(
     assert result.capped == 2
     assert gemini_judge.judge_with_correction.call_count == REJUDGE_CAP
     # Every captured correction is still surfaced, even the capped ones -
-    # they just carry no new_label since no re-judge ran for them.
+    # they just carry no resulting_labels since no re-judge ran for them.
     assert len(result.applied) == REJUDGE_CAP + 2
-    assert [a.new_label for a in result.applied[:REJUDGE_CAP]] == ["Bug"] * REJUDGE_CAP
-    assert [a.new_label for a in result.applied[REJUDGE_CAP:]] == [None, None]
+    assert [a.resulting_labels for a in result.applied[:REJUDGE_CAP]] == [
+        ["Bug"]
+    ] * REJUDGE_CAP
+    assert [a.resulting_labels for a in result.applied[REJUDGE_CAP:]] == [None, None]
     # Only the ones that actually got re-judged have anything to report -
     # capped corrections leave changed_fields NULL (never called for them).
     assert set_changed_fields.call_count == REJUDGE_CAP

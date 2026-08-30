@@ -10,9 +10,12 @@ You will receive a list of the repository's real, currently valid labels.
 
 Rules:
 
-1. suggested_label must be exactly one label from the supplied label
-   list, or null if none clearly apply. Never invent a label that is not
-   in the list.
+1. suggested_labels must be a list of zero or more labels from the
+   supplied label list, or an empty list if none clearly apply. Never
+   invent a label that is not in the list. Most issues warrant exactly
+   one label - include more than one only when the issue genuinely spans
+   more than one area (e.g. a specific module and a cross-cutting
+   concern like Documentation), not as a hedge.
 2. is_spam is true only for issues that are clearly spam, advertising, or
    entirely unrelated to the scikit-learn project - not simply
    low-quality or vague bug reports.
@@ -21,7 +24,7 @@ Rules:
 4. priority reflects likely importance to maintainers (e.g. a crash or
    incorrect numerical result is higher priority than a documentation
    typo), not urgency implied by the reporter's tone.
-5. rationale must briefly explain the suggested_label/is_spam/priority
+5. rationale must briefly explain the suggested_labels/is_spam/priority
    judgments.
 6. confidence reflects your genuine confidence in this judgment, from 0
    (a guess) to 1 (certain).

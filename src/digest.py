@@ -139,7 +139,7 @@ def _group_issues_by_priority(issues: list[JudgedIssue]) -> list[dict[str, Any]]
                 # setting (it eats the newline right after the tag,
                 # collapsing the blank line meant to follow it).
                 "spam_flag": " ⚠️ possible spam" if judgment.is_spam else "",
-                "suggested_label": judgment.suggested_label,
+                "suggested_labels": judgment.suggested_labels,
                 "confidence": judgment.confidence,
                 "has_code_block": _has_code_block(item.body),
                 "possible_duplicate": (

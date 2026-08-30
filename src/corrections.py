@@ -201,10 +201,18 @@ class AppliedCorrection:
 
     github_number: int
     correction_text: str
-    new_label: str | None = None
-    """The revised suggested_label, set only when a live re-judge
-    succeeded this round. None when the correction was recorded but not
-    (yet) re-judged - see CaptureResult.capped/rejudge_failures for why."""
+    added_labels: list[str] = field(default_factory=list)
+    removed_labels: list[str] = field(default_factory=list)
+    resulting_labels: list[str] | None = None
+    """added_labels/removed_labels are a plain set diff between the
+    judgment's suggested_labels before and after a live re-judge -
+    computed once the revised judgment is known, not inferred from the
+    correction's own wording, so the acknowledgment is accurate
+    regardless of how the correction happened to be phrased that day.
+    resulting_labels is the judgment's suggested_labels after the
+    re-judge; all three stay at their defaults (empty/None) when no live
+    re-judge happened this round - see CaptureResult.capped/
+    rejudge_failures for why."""
 
 
 @dataclass
@@ -247,7 +255,9 @@ def format_acknowledgment(result: CaptureResult) -> str:
         {
             "reference": f"scikit-learn/scikit-learn#{item.github_number}",
             "correction_text": item.correction_text,
-            "new_label": item.new_label,
+            "added_labels": item.added_labels,
+            "removed_labels": item.removed_labels,
+            "resulting_labels": item.resulting_labels,
         }
         for item in result.applied
     ]
@@ -417,7 +427,11 @@ def capture_corrections(
                     if getattr(context.judgment, name) != getattr(revised, name)
                 ]
                 set_correction_changed_fields(connection, correction_id, changed_fields)
-                applied_entry.new_label = revised.suggested_label
+                previous_labels = set(context.judgment.suggested_labels)
+                new_labels = set(revised.suggested_labels)
+                applied_entry.added_labels = sorted(new_labels - previous_labels)
+                applied_entry.removed_labels = sorted(previous_labels - new_labels)
+                applied_entry.resulting_labels = revised.suggested_labels
                 rejudges += 1
             except (GeminiUnavailableError, GeminiResponseError) as error:
                 LOGGER.warning(f"Re-judge failed for issue #{github_number}: {error}")

@@ -1,6 +1,6 @@
 """Print how many corrections have touched each tracked judgment field.
 
-Phase 8 evidence: which parts of a judgment (suggested_label, is_spam,
+Phase 8 evidence: which parts of a judgment (suggested_labels, is_spam,
 priority) real corrections tend to be about, so far. Only reflects
 corrections captured after the changed_fields column existed - see
 get_correction_field_counts's docstring for why older rows aren't

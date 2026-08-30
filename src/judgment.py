@@ -16,11 +16,15 @@ class IssueJudgment(BaseModel):
     schema - dropped from the MVP.
     """
 
-    suggested_label: str | None = Field(
-        default=None,
+    suggested_labels: list[str] = Field(
+        default_factory=list,
         description=(
-            "A topic/category label the issue may warrant, e.g. "
-            "'linear model'. None if there is no clear match."
+            "Topic/category label(s) the issue may warrant, e.g. "
+            "['linear model']. Empty if there is no clear match. Most "
+            "issues warrant exactly one label - suggest more than one "
+            "only when the issue genuinely spans more than one area "
+            "(e.g. both a specific module and a cross-cutting concern "
+            "like Documentation), not as a hedge."
         ),
     )
     is_spam: bool = Field(

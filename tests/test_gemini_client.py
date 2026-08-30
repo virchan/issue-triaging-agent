@@ -31,7 +31,7 @@ def judge(client: Any) -> GeminiJudge:
 
 def response_text(
     *,
-    suggested_label: str | None = "Bug",
+    suggested_labels: list[str] | None = None,
     is_spam: bool = False,
     summary: str = "A short summary.",
     priority: str = "medium",
@@ -39,7 +39,7 @@ def response_text(
     confidence: float = 0.8,
 ) -> str:
     return IssueJudgment(
-        suggested_label=suggested_label,
+        suggested_labels=["Bug"] if suggested_labels is None else suggested_labels,
         is_spam=is_spam,
         summary=summary,
         priority=priority,
@@ -62,7 +62,7 @@ def test_judge_returns_parsed_judgment(
     mocker: Any, client: Any, judge: GeminiJudge
 ) -> None:
     client.models.generate_content.return_value = mocker.Mock(
-        text=response_text(suggested_label="module:preprocessing")
+        text=response_text(suggested_labels=["module:preprocessing"])
     )
 
     judgment = judge.judge(
@@ -71,7 +71,7 @@ def test_judge_returns_parsed_judgment(
         known_labels=KNOWN_LABELS,
     )
 
-    assert judgment.suggested_label == "module:preprocessing"
+    assert judgment.suggested_labels == ["module:preprocessing"]
     assert judgment.priority == "medium"
 
 
@@ -107,7 +107,9 @@ def test_instructions_load_from_their_template_files() -> None:
     rather than trusting the refactor silently."""
 
     assert "triage assistant for the scikit-learn" in _JUDGE_INSTRUCTIONS
-    assert "suggested_label must be exactly one label" in _JUDGE_INSTRUCTIONS
+    assert (
+        "suggested_labels must be a list of zero or more labels" in _JUDGE_INSTRUCTIONS
+    )
     assert "revising a previous triage judgment" in _REJUDGE_INSTRUCTIONS
     assert "Produce a revised judgment" in _REJUDGE_INSTRUCTIONS
 
@@ -180,7 +182,7 @@ def test_judge_rejects_label_outside_known_list(
     mocker: Any, client: Any, judge: GeminiJudge
 ) -> None:
     client.models.generate_content.return_value = mocker.Mock(
-        text=response_text(suggested_label="Totally Invented Label")
+        text=response_text(suggested_labels=["Totally Invented Label"])
     )
 
     with pytest.raises(GeminiResponseError, match="unknown label"):
@@ -195,7 +197,7 @@ def test_judge_rejects_missing_required_field(
     exercising the same ValidationError guardrail."""
 
     client.models.generate_content.return_value = mocker.Mock(
-        text='{"suggested_label": "Bug", "is_spam": false, "priority": "medium", '
+        text='{"suggested_labels": ["Bug"], "is_spam": false, "priority": "medium", '
         '"rationale": "r", "confidence": 0.8}'
     )
 
@@ -210,7 +212,7 @@ def test_judge_rejects_invalid_priority_value(
     Literal - the model hallucinating a value outside its own schema."""
 
     client.models.generate_content.return_value = mocker.Mock(
-        text='{"suggested_label": "Bug", "is_spam": false, "summary": "s", '
+        text='{"suggested_labels": ["Bug"], "is_spam": false, "summary": "s", '
         '"priority": "urgent", "rationale": "r", "confidence": 0.8}'
     )
 
@@ -222,7 +224,7 @@ def test_judge_rejects_confidence_out_of_range(
     mocker: Any, client: Any, judge: GeminiJudge
 ) -> None:
     client.models.generate_content.return_value = mocker.Mock(
-        text='{"suggested_label": "Bug", "is_spam": false, "summary": "s", '
+        text='{"suggested_labels": ["Bug"], "is_spam": false, "summary": "s", '
         '"priority": "medium", "rationale": "r", "confidence": 1.5}'
     )
 
@@ -230,15 +232,15 @@ def test_judge_rejects_confidence_out_of_range(
         judge.judge(title="Some issue", body=None, known_labels=KNOWN_LABELS)
 
 
-def test_judge_allows_null_suggested_label(
+def test_judge_allows_empty_suggested_labels(
     mocker: Any, client: Any, judge: GeminiJudge
 ) -> None:
     client.models.generate_content.return_value = mocker.Mock(
-        text=response_text(suggested_label=None)
+        text=response_text(suggested_labels=[])
     )
 
     judgment = judge.judge(title="Some issue", body=None, known_labels=KNOWN_LABELS)
-    assert judgment.suggested_label is None
+    assert judgment.suggested_labels == []
 
 
 def test_format_examples_empty_list_returns_empty_string() -> None:
@@ -251,7 +253,7 @@ def test_format_examples_shows_correction_and_confirmation() -> None:
             issue_title="Corrected issue",
             issue_body=None,
             judgment=IssueJudgment(
-                suggested_label="Bug",
+                suggested_labels=["Bug"],
                 is_spam=False,
                 summary="s",
                 priority="medium",
@@ -264,7 +266,7 @@ def test_format_examples_shows_correction_and_confirmation() -> None:
             issue_title="Confirmed issue",
             issue_body=None,
             judgment=IssueJudgment(
-                suggested_label="Documentation",
+                suggested_labels=["Documentation"],
                 is_spam=False,
                 summary="s",
                 priority="low",
@@ -293,7 +295,7 @@ def test_format_examples_shows_similarity_when_set() -> None:
             issue_title="Similar issue",
             issue_body=None,
             judgment=IssueJudgment(
-                suggested_label="Bug",
+                suggested_labels=["Bug"],
                 is_spam=False,
                 summary="s",
                 priority="medium",
@@ -307,7 +309,7 @@ def test_format_examples_shows_similarity_when_set() -> None:
             issue_title="Recency-based issue",
             issue_body=None,
             judgment=IssueJudgment(
-                suggested_label="Bug",
+                suggested_labels=["Bug"],
                 is_spam=False,
                 summary="s",
                 priority="medium",
@@ -334,7 +336,7 @@ def test_judge_includes_recent_examples_in_prompt(
             issue_title="A past issue about OPTICS",
             issue_body=None,
             judgment=IssueJudgment(
-                suggested_label="Bug",
+                suggested_labels=["Bug"],
                 is_spam=False,
                 summary="s",
                 priority="medium",
@@ -381,7 +383,7 @@ def test_judge_includes_similar_examples_in_prompt(
             issue_title="A semantically similar past issue",
             issue_body=None,
             judgment=IssueJudgment(
-                suggested_label="Bug",
+                suggested_labels=["Bug"],
                 is_spam=False,
                 summary="s",
                 priority="medium",
@@ -418,7 +420,7 @@ def test_judge_without_similar_examples_omits_the_section(
 
 
 PREVIOUS_JUDGMENT = IssueJudgment(
-    suggested_label="module:preprocessing",
+    suggested_labels=["module:preprocessing"],
     is_spam=False,
     summary="Old summary.",
     priority="medium",
@@ -431,7 +433,7 @@ def test_judge_with_correction_returns_revised_judgment(
     mocker: Any, client: Any, judge: GeminiJudge
 ) -> None:
     client.models.generate_content.return_value = mocker.Mock(
-        text=response_text(suggested_label="Bug", summary="Revised summary.")
+        text=response_text(suggested_labels=["Bug"], summary="Revised summary.")
     )
 
     judgment = judge.judge_with_correction(
@@ -442,7 +444,7 @@ def test_judge_with_correction_returns_revised_judgment(
         known_labels=KNOWN_LABELS,
     )
 
-    assert judgment.suggested_label == "Bug"
+    assert judgment.suggested_labels == ["Bug"]
     assert judgment.summary == "Revised summary."
 
 
@@ -501,7 +503,7 @@ def test_judge_with_correction_rejects_label_outside_known_list(
     mocker: Any, client: Any, judge: GeminiJudge
 ) -> None:
     client.models.generate_content.return_value = mocker.Mock(
-        text=response_text(suggested_label="Totally Invented Label")
+        text=response_text(suggested_labels=["Totally Invented Label"])
     )
 
     with pytest.raises(GeminiResponseError, match="unknown label"):

@@ -12,9 +12,15 @@ Recorded — no corrections needed for this digest.
 **`{{ item.reference }}`**
 
 {{ item.correction_text }}
-{% if item.new_label is not none %}
+{% if item.added_labels and item.removed_labels %}
 
-→ label updated to **{{ item.new_label }}**
+→ labels updated: {{ item.removed_labels|join(", ") }} → {{ item.added_labels|join(", ") }} (now: {{ item.resulting_labels|join(", ") if item.resulting_labels else "no label" }})
+{% elif item.added_labels %}
+
+→ {{ item.added_labels|join(", ") }} added (now: {{ item.resulting_labels|join(", ") }})
+{% elif item.removed_labels %}
+
+→ {{ item.removed_labels|join(", ") }} removed{% if item.resulting_labels %} (now: {{ item.resulting_labels|join(", ") }}){% endif %}
 {% endif %}
 {% if not loop.last %}
 

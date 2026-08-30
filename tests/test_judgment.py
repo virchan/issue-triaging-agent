@@ -8,7 +8,7 @@ from src.judgment import IssueJudgment
 
 def _valid_kwargs(**overrides: object) -> dict[str, object]:
     kwargs: dict[str, object] = {
-        "suggested_label": "Bug",
+        "suggested_labels": ["Bug"],
         "is_spam": False,
         "summary": "A short summary.",
         "priority": "medium",
@@ -21,14 +21,14 @@ def _valid_kwargs(**overrides: object) -> dict[str, object]:
 
 def test_valid_judgment_constructs() -> None:
     judgment = IssueJudgment(**_valid_kwargs())
-    assert judgment.suggested_label == "Bug"
+    assert judgment.suggested_labels == ["Bug"]
     assert judgment.priority == "medium"
 
 
-def test_suggested_label_defaults_to_none() -> None:
+def test_suggested_labels_defaults_to_empty_list() -> None:
     kwargs = _valid_kwargs()
-    del kwargs["suggested_label"]
-    assert IssueJudgment(**kwargs).suggested_label is None
+    del kwargs["suggested_labels"]
+    assert IssueJudgment(**kwargs).suggested_labels == []
 
 
 def test_is_spam_defaults_to_false() -> None:

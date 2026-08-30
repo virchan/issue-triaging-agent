@@ -37,7 +37,7 @@ This project keeps those two concerns separate:
 | # | Step | What it does |
 |---|---|---|
 | 1 | **Fetch** | Fetch scikit-learn issues labelled `Needs Triage` that were created since the previous run. |
-| 2 | **Judge** | Gemini produces a structured judgement containing: <ul><li>suggested label</li><li>spam flag</li><li>priority</li><li>summary</li><li>rationale</li><li>confidence</li></ul> Suggested labels are constrained against the repository's current GitHub label list. |
+| 2 | **Judge** | Gemini produces a structured judgement containing: <ul><li>suggested label(s)</li><li>spam flag</li><li>priority</li><li>summary</li><li>rationale</li><li>confidence</li></ul> Most issues get exactly one label; a second is suggested only when the issue genuinely spans more than one area. Suggested labels are constrained against the repository's current GitHub label list. |
 | 3 | **Detect possible duplicates** | Each issue is embedded and compared with a rolling two-year pool of scikit-learn issue embeddings. <br><br> The most similar issue above a minimum similarity floor is returned as a possible duplicate. It is treated as a suggestion rather than a duplicate/not-duplicate classification. |
 | 4 | **Retrieve similar precedents (RAG)** | The same embedding is also used to retrieve semantically similar previously reviewed judgements. <br><br> These reviewed examples, including human corrections, are supplied to the model as few-shot context. This retrieval signal is separate from the recency-based few-shot examples used to maintain consistency across recent runs. |
 | 5 | **Digest & publish** | Judgements are aggregated into a Markdown digest and published as an issue in the author's shadow repository. |
@@ -88,7 +88,7 @@ The golden set contains real, human-reviewed judgements - including corrected on
 
 A `REGRESSION` fails CI.
 
-The failure-mode matrix records which cases are currently represented in the golden set and which are still missing. For example, the current set does not yet contain a real spam case or a null-label case.
+The failure-mode matrix records which cases are currently represented in the golden set and which are still missing. For example, the current set does not yet contain a real spam case or an empty-label case.
 
 The intention is to make those limitations visible rather than treating the golden set as complete.
 

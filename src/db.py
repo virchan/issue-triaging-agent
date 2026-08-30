@@ -140,7 +140,7 @@ def save_judgment(
         cursor.execute(
             """
             INSERT INTO judgments (
-                issue_id, digest_id, suggested_label, is_spam,
+                issue_id, digest_id, suggested_labels, is_spam,
                 summary, priority, rationale, confidence
             )
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
@@ -150,7 +150,7 @@ def save_judgment(
             (
                 issue_id,
                 digest_id,
-                judgment.suggested_label,
+                judgment.suggested_labels,
                 judgment.is_spam,
                 judgment.summary,
                 judgment.priority,
@@ -347,7 +347,7 @@ def _row_to_judged_issue(row: tuple[Any, ...]) -> JudgedIssue:
         repo_owner=row[6],
         repo_name=row[7],
         judgment=IssueJudgment(
-            suggested_label=row[8],
+            suggested_labels=list(row[8]),
             is_spam=row[9],
             summary=row[10],
             priority=row[11],
@@ -362,7 +362,7 @@ def _row_to_judged_issue(row: tuple[Any, ...]) -> JudgedIssue:
 _JUDGED_ISSUE_SELECT = """
     SELECT i.id, j.id, i.github_number, i.title, i.body, i.html_url,
            i.repo_owner, i.repo_name,
-           j.suggested_label, j.is_spam, j.summary, j.priority,
+           j.suggested_labels, j.is_spam, j.summary, j.priority,
            j.rationale, j.confidence,
            j.possible_duplicate_number, j.possible_duplicate_similarity
     FROM issues i
@@ -698,7 +698,7 @@ def get_rejudge_context(
     with connection.cursor() as cursor:
         cursor.execute(
             """
-            SELECT i.title, i.body, j.suggested_label, j.is_spam, j.summary,
+            SELECT i.title, i.body, j.suggested_labels, j.is_spam, j.summary,
                    j.priority, j.rationale, j.confidence
             FROM judgments j
             JOIN issues i ON i.id = j.issue_id
@@ -715,7 +715,7 @@ def get_rejudge_context(
         title=row[0],
         body=row[1],
         judgment=IssueJudgment(
-            suggested_label=row[2],
+            suggested_labels=list(row[2]),
             is_spam=row[3],
             summary=row[4],
             priority=row[5],
@@ -744,12 +744,12 @@ def update_judgment(
         cursor.execute(
             """
             UPDATE judgments
-            SET suggested_label = %s, is_spam = %s, summary = %s,
+            SET suggested_labels = %s, is_spam = %s, summary = %s,
                 priority = %s, rationale = %s, confidence = %s
             WHERE id = %s
             """,
             (
-                judgment.suggested_label,
+                judgment.suggested_labels,
                 judgment.is_spam,
                 judgment.summary,
                 judgment.priority,
@@ -765,7 +765,7 @@ def update_judgment(
 # regenerated, so it "changes" on every re-judge trivially) and
 # confidence (a continuous float, same problem) - tracking either would
 # be noise, not signal about what a human actually corrected.
-TRACKED_CORRECTION_FIELDS = ("suggested_label", "is_spam", "priority")
+TRACKED_CORRECTION_FIELDS = ("suggested_labels", "is_spam", "priority")
 
 
 def set_correction_changed_fields(
@@ -861,7 +861,7 @@ def get_recent_reviewed_judgments(
     with connection.cursor() as cursor:
         cursor.execute(
             """
-            SELECT i.title, i.body, j.suggested_label, j.is_spam, j.summary,
+            SELECT i.title, i.body, j.suggested_labels, j.is_spam, j.summary,
                    j.priority, j.rationale, j.confidence, c.comment_body
             FROM judgments j
             JOIN issues i ON i.id = j.issue_id
@@ -880,7 +880,7 @@ def get_recent_reviewed_judgments(
             issue_title=row[0],
             issue_body=row[1],
             judgment=IssueJudgment(
-                suggested_label=row[2],
+                suggested_labels=list(row[2]),
                 is_spam=row[3],
                 summary=row[4],
                 priority=row[5],
@@ -912,7 +912,7 @@ def get_reviewed_judgments_with_embeddings(
         cursor.execute(
             """
             SELECT i.github_number, e.embedding, i.title, i.body,
-                   j.suggested_label, j.is_spam, j.summary, j.priority,
+                   j.suggested_labels, j.is_spam, j.summary, j.priority,
                    j.rationale, j.confidence, c.comment_body
             FROM judgments j
             JOIN issues i ON i.id = j.issue_id
@@ -932,7 +932,7 @@ def get_reviewed_judgments_with_embeddings(
                 issue_title=row[2],
                 issue_body=row[3],
                 judgment=IssueJudgment(
-                    suggested_label=row[4],
+                    suggested_labels=list(row[4]),
                     is_spam=row[5],
                     summary=row[6],
                     priority=row[7],
@@ -986,7 +986,7 @@ def get_all_reviewed_judgments(
     with connection.cursor() as cursor:
         cursor.execute(
             """
-            SELECT i.github_number, i.title, i.body, j.suggested_label,
+            SELECT i.github_number, i.title, i.body, j.suggested_labels,
                    j.is_spam, j.summary, j.priority, j.rationale,
                    j.confidence, c.comment_body,
                    (d.window_end AT TIME ZONE 'America/Los_Angeles')::date,
@@ -1008,7 +1008,7 @@ def get_all_reviewed_judgments(
             issue_title=row[1],
             issue_body=row[2],
             judgment=IssueJudgment(
-                suggested_label=row[3],
+                suggested_labels=list(row[3]),
                 is_spam=row[4],
                 summary=row[5],
                 priority=row[6],
@@ -1029,7 +1029,7 @@ class JudgmentAuditEntry:
 
     github_number: int
     title: str
-    suggested_label: str | None
+    suggested_labels: list[str]
     is_spam: bool
     priority: str
     confidence: float
@@ -1052,7 +1052,7 @@ def get_judgment_audit_trail(
     with connection.cursor() as cursor:
         cursor.execute(
             """
-            SELECT i.github_number, i.title, j.suggested_label, j.is_spam,
+            SELECT i.github_number, i.title, j.suggested_labels, j.is_spam,
                    j.priority, j.confidence,
                    (d.window_end AT TIME ZONE 'America/Los_Angeles')::date,
                    d.state, c.comment_body
@@ -1071,7 +1071,7 @@ def get_judgment_audit_trail(
         JudgmentAuditEntry(
             github_number=row[0],
             title=row[1],
-            suggested_label=row[2],
+            suggested_labels=list(row[2]),
             is_spam=row[3],
             priority=row[4],
             confidence=row[5],

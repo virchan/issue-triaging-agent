@@ -52,7 +52,7 @@ def test_judgments_returns_audit_trail(mocker: Any, client: TestClient) -> None:
         JudgmentAuditEntry(
             github_number=34649,
             title="Some issue",
-            suggested_label="Bug",
+            suggested_labels=["Bug"],
             is_spam=False,
             priority="medium",
             confidence=0.9,

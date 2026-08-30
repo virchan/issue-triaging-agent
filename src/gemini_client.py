@@ -68,8 +68,9 @@ def _format_examples(examples: list[ReviewedJudgment], *, header: str) -> str:
         lines.append(f'{index}. Issue: "{example.issue_title}"')
         if example.similarity is not None:
             lines.append(f"   Similarity to this issue: {example.similarity:.2f}")
+        labels_text = ", ".join(judgment.suggested_labels) or "(none)"
         lines.append(
-            f"   Your judgment: label={judgment.suggested_label or '(none)'}, "
+            f"   Your judgment: labels={labels_text}, "
             f"is_spam={judgment.is_spam}, priority={judgment.priority}"
         )
         if example.correction_text:
@@ -236,13 +237,12 @@ class GeminiJudge:
                 "The judgment service returned an invalid response."
             ) from error
 
-        if (
-            judgment.suggested_label is not None
-            and judgment.suggested_label not in known_labels
-        ):
+        unknown_labels = [
+            label for label in judgment.suggested_labels if label not in known_labels
+        ]
+        if unknown_labels:
             raise GeminiResponseError(
-                "The judgment service suggested an unknown label: "
-                f"{judgment.suggested_label!r}"
+                f"The judgment service suggested unknown label(s): {unknown_labels!r}"
             )
 
         return judgment
