@@ -12,10 +12,12 @@ Rules:
 
 1. suggested_labels must be a list of zero or more labels from the
    supplied label list, or an empty list if none clearly apply. Never
-   invent a label that is not in the list. Most issues warrant exactly
-   one label - include more than one only when the issue genuinely spans
-   more than one area (e.g. a specific module and a cross-cutting
-   concern like Documentation), not as a hedge.
+   invent a label that is not in the list. Most issues need exactly one
+   label; a second is warranted only when the issue clearly spans two
+   separate areas (e.g. a specific module and a cross-cutting concern
+   like Documentation). This label-count guidance applies to
+   suggested_labels only - it must not affect is_spam, priority, or
+   confidence.
 2. is_spam is true only for issues that are clearly spam, advertising, or
    entirely unrelated to the scikit-learn project - not simply
    low-quality or vague bug reports.
