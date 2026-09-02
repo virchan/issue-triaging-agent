@@ -2,6 +2,34 @@
 
 Documented operational procedures for known failure modes of `issue-triaging-agent`. Each entry records what would be observed, how it can be confirmed, how it is fixed, and how the fix is verified. Entries are written in a generalized, undated form for the procedure itself - the date on each entry marks when the failure mode was first encountered and documented, not an expiry. Entries are ordered newest first.
 
+* <details><summary>2026-08-31 - 2026-09-02: An additive correction replaced a label instead of adding to it</summary>
+
+  ### Symptom
+
+  A correction phrased additively - "should also be labelled X," "should include X," "X in addition to Y" - appears to have no effect, or worse, silently replaces the issue's existing label with the new one instead of adding to it.
+
+  ### Why this happened
+
+  `suggested_label` held exactly one string. A correction is always applied by re-judging the issue with the correction as context, then overwriting the stored judgment with the result - there was no way to represent "keep the existing label and add this one," so an additive correction got arbitrarily collapsed into a full replacement. Read against real history: most real corrections turn out to be additive rather than replacements, so this wasn't an edge case - it was the more common shape, and it's the concrete, evidenced reason label feedback sometimes didn't seem to "stick."
+
+  ### Fix
+
+  `suggested_label` became `suggested_labels`, a list. The correction-handling prompt now explicitly distinguishes additive phrasing (keep existing labels, add the new one) from explicit replacement phrasing ("X is incorrect," "should not include X"), and the acknowledgment reports a deterministic added/removed diff computed from the label sets before and after, rather than a single "updated to" line - so it's clear at a glance whether a correction was additive or a genuine replacement.
+
+  ### Verification
+
+  `uv run pytest -q` passes with tests covering the diff rendering and the subset-match golden-eval rule this required. Confirmed live and organically, not just by manual reproduction: the first real additive correction after this shipped (`#34860`, "also needs an `API` label") produced `→ API added (now: module:preprocessing, API)` in the real acknowledgment, and the stored judgment shows both labels - the failure mode described above did not recur.
+
+  ### Status
+
+  Resolved. This exact failure mode is not expected to recur, since the single-label constraint that caused it no longer exists in the schema. If a correction still appears to be silently dropped or replaced, that's a different failure mode - see the correction-comment entry below.
+
+  ### Related
+
+  Distinct from the correction-comment-attribution entry below, which is about identifying *which issue* a correction refers to - this entry is about what happens to the label *once* the right issue is correctly identified.
+
+  </details>
+
 * <details><summary>2026-08-25: An already-reviewed issue reappears in a later digest as if new</summary>
 
   ### Symptom
