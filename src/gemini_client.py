@@ -28,6 +28,22 @@ class GeminiResponseError(RuntimeError):
     """Raised when Gemini returns an invalid or ungrounded structured response."""
 
 
+# The google-genai SDK's own defaults, left unset, give each request
+# effectively no timeout and up to 5 retries with backoff capped at 60s -
+# a single call under sustained provider degradation can legitimately
+# take several minutes with no way to know from the outside. A real
+# incident hit exactly this: a stuck call silently consumed the
+# remainder of the daily job's task timeout with no log output at all,
+# killing the whole run before it ever reached publish_digest. Bounding
+# both the per-request timeout and the retry budget gives every call a
+# predictable worst case, so one bad call can't silently exhaust a
+# shared time budget the caller has no visibility into.
+_HTTP_OPTIONS = types.HttpOptions(
+    timeout=30_000,  # milliseconds
+    retry_options=types.HttpRetryOptions(attempts=3, max_delay=15.0),
+)
+
+
 # Kept as separate template files (src/templates/*-instructions.md.jinja),
 # not inline string constants - editing the wording of a rule (a change
 # that has previously been tried and reverted after it broke a passing
@@ -99,7 +115,7 @@ class GeminiJudge:
         if client is None:
             if api_key is None or not api_key.strip():
                 raise GeminiConfigurationError("A Gemini API key is required.")
-            client = genai.Client(api_key=api_key.strip())
+            client = genai.Client(api_key=api_key.strip(), http_options=_HTTP_OPTIONS)
 
         self._model = model
         self._client = client

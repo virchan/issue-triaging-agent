@@ -31,6 +31,19 @@ EMBEDDING_MODEL = "gemini-embedding-001"
 MAX_RATE_LIMIT_RETRIES = 5
 INITIAL_BACKOFF_SECONDS = 2.0
 
+# Bounds each individual HTTP request to a predictable worst case - the
+# google-genai SDK's own default (no timeout, up to 5 retries) means a
+# single request can otherwise hang indefinitely under sustained
+# provider degradation. retry_options disables the SDK's own retry
+# entirely (attempts=1): this module already has its own purpose-built
+# 429 retry loop above, and layering the SDK's generic retry underneath
+# it would compound into up to 5x as many total attempts per call,
+# not fewer.
+_HTTP_OPTIONS = types.HttpOptions(
+    timeout=30_000,  # milliseconds
+    retry_options=types.HttpRetryOptions(attempts=1),
+)
+
 
 class IssueEmbedder:
     """Produce a semantic-similarity embedding vector for issue text."""
@@ -44,7 +57,7 @@ class IssueEmbedder:
         if client is None:
             if api_key is None or not api_key.strip():
                 raise GeminiConfigurationError("A Gemini API key is required.")
-            client = genai.Client(api_key=api_key.strip())
+            client = genai.Client(api_key=api_key.strip(), http_options=_HTTP_OPTIONS)
 
         self._client = client
 

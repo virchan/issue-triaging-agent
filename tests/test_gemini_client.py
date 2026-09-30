@@ -58,6 +58,24 @@ def test_requires_model_name() -> None:
         GeminiJudge(model="   ", client=object())
 
 
+def test_client_construction_bounds_request_timeout_and_retries(mocker: Any) -> None:
+    """Regression test for a real incident: the google-genai SDK's own
+    defaults (no request timeout, up to 5 retries) let a single call hang
+    for minutes under sustained provider degradation, once silently
+    consuming an entire Cloud Run Job's task timeout with no log output.
+    A real API key isn't needed here - this only checks what genai.Client
+    was constructed with."""
+
+    mock_client_cls = mocker.patch("src.gemini_client.genai.Client")
+
+    GeminiJudge(model="gemini-3.5-flash", api_key="fake-key")
+
+    _, kwargs = mock_client_cls.call_args
+    http_options = kwargs["http_options"]
+    assert http_options.timeout == 30_000
+    assert http_options.retry_options.attempts == 3
+
+
 def test_judge_returns_parsed_judgment(
     mocker: Any, client: Any, judge: GeminiJudge
 ) -> None:

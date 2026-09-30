@@ -45,6 +45,24 @@ def test_requires_an_api_key_or_client() -> None:
         IssueEmbedder(api_key="   ")
 
 
+def test_client_construction_bounds_timeout_without_compounding_retries(
+    mocker: Any,
+) -> None:
+    """Bounds each request's timeout, but disables the SDK's own retry
+    (attempts=1) rather than layering it on top of this module's own
+    MAX_RATE_LIMIT_RETRIES loop - two retry layers would compound into up
+    to 5x as many total attempts per call, not fewer."""
+
+    mock_client_cls = mocker.patch("src.embeddings.genai.Client")
+
+    IssueEmbedder(api_key="fake-key")
+
+    _, kwargs = mock_client_cls.call_args
+    http_options = kwargs["http_options"]
+    assert http_options.timeout == 30_000
+    assert http_options.retry_options.attempts == 1
+
+
 def test_embed_returns_the_vector(client: Any, embedder: IssueEmbedder) -> None:
     client.models.embed_content.return_value = mocker_embedding_response(
         [0.1, 0.2, 0.3]
