@@ -2,6 +2,43 @@
 
 Documented operational procedures for known failure modes of `issue-triaging-agent`. Each entry records what would be observed, how it can be confirmed, how it is fixed, and how the fix is verified. Entries are written in a generalized, undated form for the procedure itself - the date on each entry marks when the failure mode was first encountered and documented, not an expiry. Entries are ordered newest first.
 
+* <details><summary>2026-09-30: A stuck Gemini call silently consumed the daily job's entire task timeout - no digest published</summary>
+
+  ### Symptom
+
+  The Cloud Monitoring "a Cloud Run Job execution failed" alert fires for `issue-triaging-agent-daily`, and no digest issue exists for that day at all - not even a "nothing new" one.
+
+  ### Why this happens
+
+  The forward pipeline (fetching genuinely new issues) can complete in under a second and find nothing new, while backlog catch-up (re-judging still-open, still-labeled issues) still has real work to do. Under a real, sustained Gemini `503 UNAVAILABLE` ("high demand") outage, most failed calls fail cleanly and quickly and the pipeline correctly logs them as warnings and moves on - but a single call can, on its own, legitimately take minutes if neither the per-request timeout nor the retry budget is bounded, since the underlying SDK's own defaults (used unless explicitly overridden) impose no request timeout and allow up to 5 retries with backoff capped at 60s. A call that hits this worst case produces no log output while it runs, and can silently consume the rest of the job's task-timeout budget - killing `run_daily_cycle` before it ever reaches `publish_digest`, discarding even the backlog results that already completed cleanly earlier in the same run.
+
+  ### Diagnosis
+
+  The real execution's full log stream (not just `severity>=ERROR`) is read for the run in question, to see what was actually happening in any silent gap before a timeout message:
+
+  ```bash
+  gcloud logging read 'resource.type="cloud_run_job"
+    AND resource.labels.job_name="issue-triaging-agent-daily"
+    AND timestamp>="START_TIME" AND timestamp<="END_TIME"' \
+    --format="value(timestamp,severity,jsonPayload.event,jsonPayload.message,textPayload)" --order=asc --limit=200
+  ```
+
+  A `poll_run` event with `fetched=0` completing in under a second rules out the forward pipeline as the cause. A gap of several minutes with zero log output, immediately followed by `Terminating task because it has reached the maximum timeout of N seconds`, is the signature of a single stuck call - distinguished from the backfill job's own timeout entry below by being about one call's unbounded worst case, not sheer batch size.
+
+  ### Fix
+
+  `GeminiJudge`'s and `IssueEmbedder`'s Gemini clients both set an explicit `http_options` (a bounded per-request timeout, and a bounded retry budget) rather than relying on the SDK's own defaults - giving every call a predictable worst case instead of an unbounded one. The two modules are deliberately configured differently: `IssueEmbedder` already has its own purpose-built retry loop for rate limiting, so its SDK-level retry is disabled entirely (one attempt) rather than layered underneath that loop, which would otherwise compound into several times as many total attempts per call. The daily job's own task timeout was also raised as a safety margin, for the same reason the backfill job's was: bounding one call's worst case doesn't fully protect a run that needs to make several calls in a row during a sustained outage.
+
+  ### Verification
+
+  `uv run pytest -q` passes with tests confirming each client is constructed with its intended `http_options`. A real, live call against the actual Gemini API (not mocked) confirms the bounded client still behaves normally under real, non-degraded conditions.
+
+  ### Related
+
+  Distinct from the backfill job's own task-timeout entry below - that one is about total batch size across many cheap calls pushing runtime past a long timeout; this one is about a single call's worst-case time being unbounded in the first place, on a much shorter-timeout job.
+
+  </details>
+
 * <details><summary>2026-08-31 - 2026-09-02: An additive correction replaced a label instead of adding to it</summary>
 
   ### Symptom
